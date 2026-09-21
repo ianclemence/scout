@@ -323,7 +323,7 @@ func renderEntry(e entry) string {
 	case eUser:
 		return styleUserLabel.Render("You") + "\n" + e.text
 	case eScout:
-		return styleScout.Render("Scout") + "\n" + RenderMarkdown(e.text)
+		return styleScout.Render("👷 Scout") + "\n" + RenderMarkdown(e.text)
 	case eTool:
 		return styleTool.Render("◐ " + e.text)
 	case eNotice:

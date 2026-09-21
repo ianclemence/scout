@@ -34,6 +34,9 @@ func TestRenderEntryKinds(t *testing.T) {
 	if s := renderEntry(entry{kind: eApproval, text: "x"}); !strings.Contains(s, "APPROVAL") {
 		t.Fatal("approval must be prominent")
 	}
+	if s := renderEntry(entry{kind: eScout, text: "hi"}); !strings.Contains(s, "👷 Scout") {
+		t.Fatal("assistant label must carry the builder mark")
+	}
 }
 
 func TestTruncateWrap(t *testing.T) {
