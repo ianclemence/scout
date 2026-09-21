@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/ianclemence/scout/pkg/version"
 )
 
 // updateCmd deploys the latest checkout to the installed Scout:
@@ -59,6 +61,7 @@ func updateCmd(args []string) error {
 	upToDate := strings.TrimSpace(local) == strings.TrimSpace(remote) && strings.TrimSpace(remote) != ""
 	if upToDate && !force {
 		fmt.Printf("Already up to date (%s) — nothing to deploy. Use --force to rebuild anyway.\n", strings.TrimSpace(before))
+		fmt.Printf("Scout version: %s\n", installedVersion())
 		return nil
 	}
 	if dryRun {
@@ -86,6 +89,7 @@ func updateCmd(args []string) error {
 		return fmt.Errorf("restart failed: %w (binary updated; start service manually: systemctl --user start scout)", err)
 	}
 	fmt.Printf("Update complete: %s → %s\n", strings.TrimSpace(before), strings.TrimSpace(after))
+	fmt.Printf("Scout version: %s\n", installedVersion())
 	return nil
 }
 
@@ -118,4 +122,18 @@ func shortRef(s string) string {
 		return "unknown"
 	}
 	return s
+}
+
+// installedVersion reports the deployed binary's version (what `scout`
+// actually runs), falling back to this binary's baked-in version.
+func installedVersion() string {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if out, err := exec.Command(filepath.Join(home, ".local", "bin", "scout"), "version").Output(); err == nil {
+			if v := strings.TrimSpace(string(out)); v != "" {
+				return v
+			}
+		}
+	}
+	return "scout " + version.Version
 }
