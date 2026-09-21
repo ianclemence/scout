@@ -112,6 +112,38 @@ func TestReActLoopUsesTools(t *testing.T) {
 	}
 }
 
+// No token event may ever carry the ReAct tool fence: raw tool JSON must not
+// reach the transcript (the user saw `"source_health", "arguments": {}`).
+func TestReActStreamNeverLeaksToolFence(t *testing.T) {
+	c := testCore(t)
+	if _, err := c.AddOpportunity("Go API", "Build a Go API", "go"); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeProvider{turns: []string{
+		"Let me check the sources.\n```tool\n{\"name\": \"source_health\", \"arguments\": {}}\n```\n",
+		"All sources are reachable.",
+	}}
+	var streamed strings.Builder
+	_, err := c.RunAgent(context.Background(), &agent.Engine{LLM: fake},
+		[]llm.Message{{Role: "user", Content: "which mcp is connected?"}}, "", func(ev Event) {
+			if ev.Type == "token" {
+				streamed.WriteString(ev.Text)
+			}
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := streamed.String()
+	for _, leak := range []string{"```tool", "source_health", "arguments"} {
+		if strings.Contains(got, leak) {
+			t.Fatalf("stream leaked tool machinery %q: %q", leak, got)
+		}
+	}
+	if !strings.Contains(got, "Let me check the sources") {
+		t.Fatalf("visible preamble missing from stream: %q", got)
+	}
+}
+
 func TestReActUnknownToolContinues(t *testing.T) {
 	c := testCore(t)
 	fake := &fakeProvider{turns: []string{

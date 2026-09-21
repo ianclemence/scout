@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ianclemence/scout/pkg/sources"
 )
@@ -107,6 +108,9 @@ func sourceTools(c *Core) []*Tool {
 			Description: "Connectivity/auth state of one or all sources.",
 			ArgsHint:    `{"source": "upwork"}`,
 			ArgsSchema:  map[string]string{"source": "string"},
+			// Bounded: a health probe must never stall a turn on a dead or
+			// slow MCP endpoint.
+			Timeout: 8 * time.Second,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
 				reg := c.SourceRegistry()
 				if id := str(args, "source"); id != "" {

@@ -82,12 +82,22 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		}
 		emit(Event{Type: "turn_start"})
 		var sb strings.Builder
+		// Stream filter: the model emits ReAct tool calls as a fenced
+		// ```tool block. Those tokens are machinery, not an answer — never
+		// stream them to the user. We buffer text and only release the
+		// visible portion; once a tool fence starts, the rest of the turn
+		// is held back (it is a tool call, not prose). If the turn ends
+		// without a tool call, the whole buffered answer is flushed so a
+		// plain reply still streams.
+		filter := newStreamFilter(func(visible string) {
+			emit(Event{Type: "token", Text: visible})
+		})
 		err := eng.LLM.Stream(ctx, llm.Request{
 			System:   agent.SystemPrompt + skillBlock + "\n\nAvailable tools:\n" + c.ToolCatalog() + reactFormat,
 			Messages: msgs, Temperature: 0.3, MaxTokens: 1500, Thinking: think,
 		}, func(tok string) error {
 			sb.WriteString(tok)
-			emit(Event{Type: "token", Text: tok})
+			filter.write(tok)
 			return nil
 		})
 		if err != nil {
@@ -103,9 +113,13 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		lastText = text
 		name, args, ok := parseToolCall(text)
 		if !ok {
+			filter.flushRemaining()
 			emit(Event{Type: "agent_end", Text: text})
 			return text, nil
 		}
+		// A tool is starting: any held-back preamble was already released
+		// by the filter when the fence began; nothing more streams until the
+		// tool resolves.
 		tool := c.FindTool(name)
 		if tool == nil {
 			msgs = append(msgs,
@@ -140,6 +154,88 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 }
 
 func summarizes(s string) string { return truncate(s, 120) }
+
+// streamFilter separates user-visible reply text from the ReAct tool fence.
+// It forwards everything up to the first "```tool" and nothing after, so raw
+// tool JSON is never streamed. Text is held for the few characters needed to
+// recognise the fence across token boundaries, then released.
+//
+// If the turn ends without a tool call, flushRemaining releases whatever is
+// still buffered so a plain answer streams in full (a single write at the
+// end is fine — the transcript is the same).
+type streamFilter struct {
+	release      func(string)
+	sawTool      bool
+	hold         strings.Builder // chars held pending a possible fence start
+	releasedText bool
+}
+
+const toolFence = "```tool"
+
+func newStreamFilter(release func(string)) *streamFilter {
+	return &streamFilter{release: release}
+}
+
+func (f *streamFilter) write(tok string) {
+	if f.sawTool {
+		return
+	}
+	f.hold.WriteString(tok)
+	h := f.hold.String()
+	if i := strings.Index(h, toolFence); i >= 0 {
+		// Release the prose before the fence; drop the fence and everything
+		// that follows it (this turn is a tool call, not an answer).
+		if pre := h[:i]; pre != "" {
+			f.release(pre)
+		}
+		f.sawTool = true
+		f.hold.Reset()
+		return
+	}
+	// No fence yet. Release all but a possible partial fence at the tail
+	// (e.g. "```to") so the visible answer streams promptly.
+	keep := longestToolFenceSuffix(h)
+	safe := h[:len(h)-keep]
+	if safe != "" {
+		f.release(safe)
+		f.releasedText = true
+	}
+	f.hold.Reset()
+	f.hold.WriteString(h[len(h)-keep:])
+}
+
+// flushRemaining releases any held text when the turn ends without a tool
+// call. If the held text was a complete-but-unterminated fence, it is dropped.
+func (f *streamFilter) flushRemaining() {
+	if f.sawTool {
+		return
+	}
+	h := f.hold.String()
+	f.hold.Reset()
+	if h == "" {
+		return
+	}
+	if strings.Contains(h, toolFence) {
+		f.sawTool = true
+		return
+	}
+	f.release(h)
+}
+
+// longestToolFenceSuffix returns how many trailing bytes of s could be the
+// start of the tool fence, so write() can hold them until the next token.
+func longestToolFenceSuffix(s string) int {
+	max := len(toolFence) - 1
+	if len(s) < max {
+		max = len(s)
+	}
+	for n := max; n > 0; n-- {
+		if strings.HasSuffix(s, toolFence[:n]) {
+			return n
+		}
+	}
+	return 0
+}
 
 // parseToolCall extracts the last ```tool fenced JSON block.
 func parseToolCall(text string) (string, map[string]any, bool) {

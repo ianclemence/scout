@@ -625,7 +625,12 @@ func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 	case "token":
 		m.stream.WriteString(ev.Text)
 	case "tool_start":
-		m.toolLine = ev.Name + " " + ev.Args
+		// The loop filters tool fences out of the token stream; defensively
+		// drop any buffered preview that still contains one so tool machinery
+		// can never linger on screen. The composer names the activity instead.
+		if strings.Contains(m.stream.String(), "```tool") {
+			m.stream.Reset()
+		}
 		m.toolName = ev.Name
 		m.tools++
 	case "tool_end":
