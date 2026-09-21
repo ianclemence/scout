@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/ianclemence/scout/internal/domain"
 	imat "github.com/ianclemence/scout/internal/match"
 	"github.com/ianclemence/scout/internal/profile"
+	"github.com/ianclemence/scout/internal/registry"
 	"github.com/ianclemence/scout/internal/secret"
 	"github.com/ianclemence/scout/internal/store"
 )
@@ -284,7 +286,7 @@ func (c *Core) PendingApprovals() ([]domain.PendingAction, error) { return appro
 // ---------- sources ----------
 
 func (c *Core) ListSources() ([]domain.WorkSource, error) {
-	rows, err := c.DB.DB.Query(`SELECT id,name,kind,endpoint,enabled,capabilities FROM sources ORDER BY name`)
+	rows, err := c.DB.DB.Query(`SELECT id,name,kind,endpoint,COALESCE(command,''),enabled,capabilities FROM sources ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}
@@ -294,7 +296,7 @@ func (c *Core) ListSources() ([]domain.WorkSource, error) {
 		var s domain.WorkSource
 		var en int
 		var caps string
-		rows.Scan(&s.ID, &s.Name, &s.Kind, &s.Endpoint, &en, &caps)
+		rows.Scan(&s.ID, &s.Name, &s.Kind, &s.Endpoint, &s.Command, &en, &caps)
 		s.Enabled = en == 1
 		json.Unmarshal([]byte(caps), &s.Capabilities)
 		out = append(out, s)
@@ -357,6 +359,52 @@ func (c *Core) RunDiscovery(dry bool) (DiscoverySummary, error) {
 	summary := fmt.Sprintf("discovered=%d candidates=%d dry_run=%v (no external writes)", total, cands, dry)
 	_, _ = c.DB.DB.Exec(`UPDATE agent_runs SET status='done', summary=?, ended_at=? WHERE id=?`, summary, now(), id)
 	return DiscoverySummary{Total: total, Candidates: cands, DryRun: dry}, nil
+}
+
+// ---------- model registry ----------
+
+// Registry builds the model catalog bound to this Core's credentials.
+func (c *Core) Registry() *registry.Registry {
+	return &registry.Registry{
+		DB:         c.DB,
+		OllamaHost: c.Cfg.OllamaHost,
+		Key:        func(provider string) string { k, _ := c.Credential(provider); return k },
+		Endpoint:   func(provider string) string { return chatEndpoint(c, provider) },
+	}
+}
+
+// Credential resolves an API key: Scout store first, then environment.
+func (c *Core) Credential(provider string) (string, error) {
+	if s, err := c.LoadSecret("llm:" + provider); err == nil && s != "" {
+		return s, nil
+	}
+	env := map[string]string{
+		"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY",
+		"deepseek": "DEEPSEEK_API_KEY", "moonshot": "MOONSHOT_API_KEY",
+		"openai_compatible": "OPENAI_COMPAT_KEY",
+	}[provider]
+	if env != "" {
+		if v := os.Getenv(env); v != "" {
+			return v, nil
+		}
+	}
+	return "", fmt.Errorf("no credential for %s", provider)
+}
+
+func chatEndpoint(c *Core, provider string) string {
+	switch provider {
+	case "openai":
+		return "https://api.openai.com/v1"
+	case "deepseek":
+		return "https://api.deepseek.com"
+	case "moonshot":
+		return "https://api.moonshot.ai/v1"
+	case "openai_compatible":
+		return os.Getenv("OPENAI_COMPAT_ENDPOINT")
+	case "ollama":
+		return c.Cfg.OllamaHost
+	}
+	return ""
 }
 
 // ---------- sessions helper ----------

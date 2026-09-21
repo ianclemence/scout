@@ -12,7 +12,11 @@ internal/
   csession/          session CRUD, message history, compact support
   secret/            AES-256-GCM master key (SCOUT_MASTER_KEY or 0600 key file)
   llm/               Provider interface: Complete + Stream (SSE). Providers:
-                     openai, anthropic, deepseek, ollama, openai_compatible
+                     openai, anthropic, deepseek, moonshot, ollama,
+                     openai_compatible. Normalized reasoning levels mapped
+                     per provider (reasoning_effort, thinking blocks, think flag)
+  registry/          model catalog: builtins + /models discovery + Ollama tags
+                     + SQLite cache + offline fallback
   profile/           CV import → structured profile (source of truth) + evidence
   match/             deterministic filters, fingerprints, heuristic dimensions, risks
   agent/             system prompt + proposal/match LLM enrichment helpers
@@ -59,7 +63,17 @@ System instructions > profile/preferences > relevant evidence > session
 history > tool results > external marketplace content (untrusted data, never
 instructions). The loop re-labels tool results as data on every turn.
 
-## Comparative review: Pi vs Scout (summary)
+## Comparative review: Pi, OpenCode vs Scout (summary)
+
+OpenCode (v2.0.11, inspected on this Pi) contributed: named MCP servers with
+local-command vs remote-URL kinds, global/project config layering, separate
+OAuth auth flow (`mcp auth`/`logout`), `auth login/logout/switch` credential
+management, `models` listing, SQLite-backed persistence, background service
+vs `--standalone`, and non-interactive `run`. Scout adopts: remote + stdio
+MCP kinds, layered config (file/env), masked key storage with store-over-env
+precedence, registry-backed `models`, SQLite everything. Scout rejects:
+background-service architecture (single process on a Pi), plugin system,
+project-scoped configs (single-user tool).
 
 | Area | Pi | Scout v0.2 | Adopt / Reject |
 |---|---|---|---|

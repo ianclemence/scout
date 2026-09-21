@@ -84,12 +84,16 @@ scout› /model
   ...
 ```
 
-Supported: OpenAI, Anthropic, DeepSeek, Ollama, any OpenAI-compatible endpoint. Bring your own keys:
+Supported: OpenAI, Anthropic, DeepSeek, Moonshot, Ollama, any OpenAI-compatible endpoint. Bring your own keys:
 
 ```sh
-export OPENAI_API_KEY=…        # or ANTHROPIC_API_KEY, DEEPSEEK_API_KEY
-scout login openai             # stored encrypted instead
+export OPENAI_API_KEY=…        # or ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY
+scout login moonshot           # stored encrypted instead
 ```
+
+Provider details (verified against current docs): DeepSeek (`https://api.deepseek.com`, `deepseek-flash`/`deepseek-v4-pro`); Moonshot (`https://api.moonshot.ai/v1`, `MOONSHOT_API_KEY`, `kimi-k3`/`kimi-k2.6`/`kimi-k2.7-code`). `scout models refresh` discovers provider models via `/models` (or Ollama tags) into a local cache; offline it falls back to cache, then the built-in catalog. Unknown metadata is shown as unknown, never invented.
+
+Reasoning is a per-session level (`/thinking off|low|medium|high|max`), mapped to each provider's real controls (e.g. `reasoning_effort`, thinking blocks, Ollama `think`). Credential precedence: credential store, then environment.
 
 Local-first option: run everything on Ollama (`qwen3:0.6b` works on the Pi) and nothing leaves the device except marketplace calls you approve.
 

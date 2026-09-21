@@ -26,10 +26,12 @@ Config file: `~/.config/scout/config.json` (or `$SCOUT_CONFIG`):
 | `SCOUT_MASTER_KEY` | secret encryption key (else generated 0600 file) |
 | `SCOUT_DRY_RUN` | block external writes |
 | `OLLAMA_HOST` | local model endpoint |
-| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | provider keys |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `MOONSHOT_API_KEY` | provider keys (credential store wins over env) |
 | `OPENAI_COMPAT_ENDPOINT` / `OPENAI_COMPAT_KEY` | generic endpoint |
 | `SCOUT_MODEL_<ROLE>` / `SCOUT_MODEL_<ROLE>_PROVIDER` | per-role override (roles: screening, analysis, proposal, conversation, deep_analysis) |
 
-Interactive: `/model` switches the session conversation model without restart; `/login <provider>` stores a key encrypted (masked prompt, never displayed). `scout config` shows effective config with secrets redacted.
+Interactive: `/model` switches the session conversation model without restart (registry-backed picker with context/reasoning metadata); `/thinking` sets the reasoning level; `/login <provider>` stores a key encrypted (masked prompt, never displayed). `scout config` shows effective config with secrets redacted. `scout models refresh [provider]` updates the cached model catalog (provider `/models` or Ollama tags; offline falls back to cache, then built-ins).
+
+MCP sources: remote (`scout integrations add Upwork https://mcp.upwork.com/mcp`) or local stdio (`scout integrations add Name --command "prog args"`).
 
 File permissions: data dir `0700`, DB and key file `0600`.

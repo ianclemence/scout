@@ -39,8 +39,9 @@ func Registry() []*Command {
 		{Name: "help", Description: "Show commands", Handler: cmdHelp},
 		{Name: "status", Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
 		{Name: "profile", Description: "Show profile summary", Handler: cmdProfile},
-		{Name: "models", Description: "Show model roles and current assignment", Handler: cmdModels},
+		{Name: "models", Description: "Show model catalog (registry, cached + discovered)", Handler: cmdModels},
 		{Name: "model", Description: "Switch conversation model: /model [provider/model]", ArgHint: "[provider/model]", Handler: cmdModel},
+		{Name: "thinking", Description: "Set reasoning level: /thinking <off|low|medium|high|max>", ArgHint: "<level>", Handler: cmdThinking},
 		{Name: "providers", Description: "Show provider availability", Handler: cmdProviders},
 		{Name: "login", Description: "Store a provider API key (masked): /login <openai|anthropic|deepseek>", ArgHint: "<provider>", Handler: cmdLogin},
 		{Name: "logout", Description: "Remove a stored provider key: /logout <provider>", ArgHint: "<provider>", Handler: cmdLogout},
@@ -93,7 +94,11 @@ func cmdStatus(ctx *SessionCtx, args string) error {
 	_ = ctx.Core.DB.DB.QueryRow(`SELECT COUNT(*) FROM applications`).Scan(&apps)
 	p, _ := ctx.Core.Profile()
 	ctx.Printf("scout %s · session %s (%s)\n", Version(), ctx.Session.ID[:12], ctx.Session.Name)
-	ctx.Printf("provider %s · model %s\n", ctx.Session.Provider, ctx.Session.Model)
+	think := ctx.Session.Thinking
+	if think == "" {
+		think = "provider default"
+	}
+	ctx.Printf("provider %s · model %s · thinking %s\n", ctx.Session.Provider, ctx.Session.Model, think)
 	ctx.Printf("profile %s · %d skills\n", p.DisplayName, len(p.Skills))
 	ctx.Printf("opportunities %d · pending approvals %d · applications %d\n", opps, pending, apps)
 	return nil
@@ -320,6 +325,42 @@ func cmdModels(ctx *SessionCtx, args string) error {
 		}
 		ctx.Printf("  %-13s %s/%s%s\n", role, r.Provider, r.Model, mark)
 	}
+	ctx.Printf("\nCatalog (builtin + cached + local Ollama; `scout models refresh` to update):\n")
+	for _, m := range ctx.Core.Registry().List(ctxBg(), "") {
+		ctx.Printf("  %-22s ctx=%s reasoning=%s tools=%v src=%s\n",
+			m.Provider+"/"+m.ID, ctxInt(m.Context), m.Reasoning, m.Tools, m.Source)
+	}
+	return nil
+}
+
+func ctxInt(n int) string {
+	if n == 0 {
+		return "unknown"
+	}
+	if n >= 1000 {
+		return fmt.Sprintf("%dk", n/1000)
+	}
+	return fmt.Sprintf("%d", n)
+}
+
+func cmdThinking(ctx *SessionCtx, args string) error {
+	level := strings.ToLower(firstField(args))
+	switch level {
+	case "off", "low", "medium", "high", "max", "":
+	default:
+		return fmt.Errorf("usage: /thinking <off|low|medium|high|max>")
+	}
+	if level == "" {
+		cur := ctx.Session.Thinking
+		if cur == "" {
+			cur = "provider default"
+		}
+		ctx.Printf("Reasoning level: %s (provider %s, model %s)\n", cur, ctx.Session.Provider, ctx.Session.Model)
+		return nil
+	}
+	ctx.Session.Thinking = level
+	csession.SetThinking(ctx.Core.DB, ctx.Session.ID, level)
+	ctx.Printf("Reasoning level → %s (mapped to %s capabilities).\n", level, ctx.Session.Provider)
 	return nil
 }
 

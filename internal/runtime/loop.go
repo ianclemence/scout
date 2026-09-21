@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -36,8 +35,9 @@ To use a tool, emit exactly one fenced block:
 Rules: one tool call per turn. After the tool result arrives, continue reasoning. When done, answer in plain text with no tool block. Never invent tool names. Consequential actions only create approvals; always say what is awaiting approval instead of claiming it was executed.`
 
 // RunAgent executes the ReAct loop. Streaming tokens go through emit.
+// think is the normalized reasoning level (off/low/medium/high/max/"").
 // ctx cancellation interrupts the loop (Ctrl-C).
-func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Message, emit Emitter) (string, error) {
+func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Message, think string, emit Emitter) (string, error) {
 	if eng == nil || eng.LLM == nil {
 		return "", fmt.Errorf("no language model configured for this role — set provider credentials (/login) or use Ollama")
 	}
@@ -53,7 +53,7 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		var sb strings.Builder
 		err := eng.LLM.Stream(ctx, llm.Request{
 			System:   agent.SystemPrompt + "\n\nAvailable tools:\n" + c.ToolCatalog() + reactFormat,
-			Messages: msgs, Temperature: 0.3, MaxTokens: 1500,
+			Messages: msgs, Temperature: 0.3, MaxTokens: 1500, Thinking: think,
 		}, func(tok string) error {
 			sb.WriteString(tok)
 			emit(Event{Type: "token", Text: tok})
@@ -135,34 +135,26 @@ func summarizeArgs(args map[string]any) string {
 	return truncate(string(b), 160)
 }
 
-// engineFromEnv builds a role-scoped engine from config + env/secrets.
+// engineFromEnv builds a role-scoped engine.
+// Credential precedence: explicit runtime config > Scout credential store
+// > environment variable > provider default. Stored and env keys are never logged.
 func engineFromEnv(c *Core, role string) *agent.Engine {
 	r, ok := c.Cfg.Models[role]
 	if !ok {
 		r = c.Cfg.Models["analysis"]
 	}
-	lcfg := llm.Config{Provider: r.Provider, Model: r.Model, Endpoint: c.Cfg.OllamaHost}
-	switch r.Provider {
-	case "openai":
-		lcfg.APIKey = os.Getenv("OPENAI_API_KEY")
-		lcfg.Endpoint = "https://api.openai.com/v1"
-	case "deepseek":
-		lcfg.APIKey = os.Getenv("DEEPSEEK_API_KEY")
-		lcfg.Endpoint = "https://api.deepseek.io"
-		if lcfg.Model == "" {
-			lcfg.Model = "deepseek-chat"
-		}
-	case "anthropic":
-		lcfg.APIKey = os.Getenv("ANTHROPIC_API_KEY")
-	case "openai_compatible":
-		lcfg.Endpoint = os.Getenv("OPENAI_COMPAT_ENDPOINT")
-		lcfg.APIKey = os.Getenv("OPENAI_COMPAT_KEY")
-	case "ollama":
-		lcfg.Endpoint = c.Cfg.OllamaHost
+	lcfg := llm.Config{Provider: r.Provider, Model: r.Model, Endpoint: chatEndpoint(c, r.Provider)}
+	if k, err := c.Credential(r.Provider); err == nil {
+		lcfg.APIKey = k
 	}
-	if lcfg.APIKey == "" && (r.Provider == "openai" || r.Provider == "anthropic" || r.Provider == "deepseek") {
-		if sec, err := c.LoadSecret("llm:" + r.Provider); err == nil && sec != "" {
-			lcfg.APIKey = sec
+	switch r.Provider {
+	case "deepseek":
+		if lcfg.Model == "" {
+			lcfg.Model = "deepseek-flash"
+		}
+	case "moonshot":
+		if lcfg.Model == "" {
+			lcfg.Model = "kimi-k2.6"
 		}
 	}
 	p, err := llm.New(lcfg)

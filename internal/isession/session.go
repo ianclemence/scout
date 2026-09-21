@@ -167,7 +167,7 @@ func handleAgentTurn(st *ReplState, input string, ctx context.Context) {
 	st.History = append(st.History, llm.Message{Role: "user", Content: input})
 	msgs := append([]llm.Message{}, st.History...)
 	var assistant strings.Builder
-	_, err := st.Core.RunAgent(ctx, eng, msgs, func(ev runtime.Event) {
+	_, err := st.Core.RunAgent(ctx, eng, msgs, st.Sess.Thinking, func(ev runtime.Event) {
 		switch ev.Type {
 		case "token":
 			assistant.WriteString(ev.Text)

@@ -96,7 +96,7 @@ func TestReActLoopUsesTools(t *testing.T) {
 	}}
 	var sawTool bool
 	final, err := c.RunAgent(context.Background(), &agent.Engine{LLM: fake},
-		[]llm.Message{{Role: "user", Content: "find work"}}, func(ev Event) {
+		[]llm.Message{{Role: "user", Content: "find work"}}, "", func(ev Event) {
 			if ev.Type == "tool_start" && ev.Name == "search_opportunities" {
 				sawTool = true
 			}
@@ -119,9 +119,27 @@ func TestReActUnknownToolContinues(t *testing.T) {
 		"Recovered.",
 	}}
 	final, err := c.RunAgent(context.Background(), &agent.Engine{LLM: fake},
-		[]llm.Message{{Role: "user", Content: "hi"}}, func(Event) {})
+		[]llm.Message{{Role: "user", Content: "hi"}}, "", func(Event) {})
 	if err != nil || !strings.Contains(final, "Recovered") {
 		t.Fatalf("should recover from unknown tool: %q %v", final, err)
+	}
+}
+
+func TestCredentialPrecedence(t *testing.T) {
+	c := testCore(t)
+	t.Setenv("OPENAI_API_KEY", "env-key")
+	if k, _ := c.Credential("openai"); k != "env-key" {
+		t.Fatal("env fallback failed")
+	}
+	if err := c.SaveSecret("llm:openai", "stored-key"); err != nil {
+		t.Fatal(err)
+	}
+	// Stored credential wins over env (explicit user action).
+	if k, _ := c.Credential("openai"); k != "stored-key" {
+		t.Fatalf("store should win, got %q", k)
+	}
+	if _, err := c.Credential("moonshot"); err == nil {
+		t.Fatal("expected no-credential error")
 	}
 }
 
@@ -131,7 +149,7 @@ func TestReActInterrupt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err := c.RunAgent(ctx, &agent.Engine{LLM: fake},
-		[]llm.Message{{Role: "user", Content: "hi"}}, func(Event) {})
+		[]llm.Message{{Role: "user", Content: "hi"}}, "", func(Event) {})
 	if err == nil {
 		t.Fatal("expected interrupt error")
 	}

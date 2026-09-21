@@ -57,7 +57,7 @@ func main() {
 	case "profile":
 		err = withCore(func(c *runtime.Core) error { return profileCmd(c, rest) })
 	case "providers", "models":
-		err = withCore(func(c *runtime.Core) error { return providersCmd(c) })
+		err = withCore(func(c *runtime.Core) error { return modelsCmd(c, rest) })
 	case "login":
 		err = withCore(func(c *runtime.Core) error { return loginCmd(c, rest) })
 	case "integrations", "sources":
@@ -434,17 +434,36 @@ func providersCmd(c *runtime.Core) error {
 		r := c.Cfg.Models[role]
 		fmt.Printf("  %-13s %s/%s\n", role, r.Provider, r.Model)
 	}
-	fmt.Printf("credentials: OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, OPENAI_COMPAT_ENDPOINT/KEY, OLLAMA_HOST, or `scout login <provider>`\n")
+	fmt.Printf("credentials: OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY, OPENAI_COMPAT_ENDPOINT/KEY, OLLAMA_HOST, or `scout login <provider>`\n")
 	return nil
+}
+
+// modelsCmd lists the registry catalog; `scout models refresh [provider]`.
+func modelsCmd(c *runtime.Core, args []string) error {
+	if len(args) > 0 && args[0] == "refresh" {
+		prov := ""
+		if len(args) > 1 {
+			prov = args[1]
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		n, err := c.Registry().Refresh(ctx, prov)
+		fmt.Printf("refreshed %d models\n", n)
+		return err
+	}
+	if len(args) == 0 {
+		return providersCmd(c)
+	}
+	return fmt.Errorf("usage: scout models [refresh [provider]]")
 }
 
 func loginCmd(c *runtime.Core, args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: scout login <openai|anthropic|deepseek>")
+		return fmt.Errorf("usage: scout login <openai|anthropic|deepseek|moonshot>")
 	}
 	p := strings.ToLower(args[0])
 	switch p {
-	case "openai", "anthropic", "deepseek":
+	case "openai", "anthropic", "deepseek", "moonshot":
 	default:
 		return fmt.Errorf("unknown provider %q", p)
 	}
@@ -476,7 +495,19 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 		}
 	case "add":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: scout integrations add <name> <endpoint>")
+			return fmt.Errorf("usage: scout integrations add <name> <endpoint> | scout integrations add <name> --command \"prog args...\"")
+		}
+		if len(args) >= 3 && args[1] == "--command" {
+			return fmt.Errorf("usage: scout integrations add <name> --command \"prog args...\"")
+		}
+		if args[2] == "--command" {
+			if len(args) < 4 {
+				return fmt.Errorf("usage: scout integrations add <name> --command \"prog args...\"")
+			}
+			_, err := c.DB.DB.Exec(`INSERT OR REPLACE INTO sources(id,name,kind,endpoint,command,enabled,capabilities) VALUES(?,?,?,?,?,1,'')`,
+				"src-"+strings.ToLower(strings.ReplaceAll(args[1], " ", "-")), args[1], "mcp-stdio", "", args[3])
+			fmt.Println("added stdio source", args[1])
+			return err
 		}
 		if !strings.HasPrefix(args[2], "https://") && !strings.HasPrefix(args[2], "http://localhost") && !strings.HasPrefix(args[2], "http://127.0.0.1") {
 			return fmt.Errorf("endpoint must be https (or localhost http)")
@@ -490,12 +521,18 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 		if len(args) > 1 {
 			name = args[1]
 		}
-		var endpoint string
-		if err := c.DB.DB.QueryRow(`SELECT endpoint FROM sources WHERE name=?`, name).Scan(&endpoint); err != nil {
+		var endpoint, kind, command string
+		if err := c.DB.DB.QueryRow(`SELECT endpoint,kind,COALESCE(command,'') FROM sources WHERE name=?`, name).Scan(&endpoint, &kind, &command); err != nil {
 			return fmt.Errorf("source %q not found", name)
 		}
 		tok, _ := c.LoadSecret("mcp:" + name)
 		conn := &mcpclient.Connector{ID: name, Endpoint: endpoint, Token: tok}
+		if kind == "mcp-stdio" {
+			if command == "" {
+				return fmt.Errorf("stdio source %q has no command", name)
+			}
+			conn.Command = strings.Fields(command)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		tools, err := conn.ListTools(ctx)
@@ -553,7 +590,7 @@ func askCmd(c *runtime.Core, args []string) error {
 	eng := c.EngineFor(sess.Provider, sess.Model)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	final, err := c.RunAgent(ctx, eng, []llm.Message{{Role: "user", Content: strings.Join(q, " ")}}, func(ev runtime.Event) {
+	final, err := c.RunAgent(ctx, eng, []llm.Message{{Role: "user", Content: strings.Join(q, " ")}}, "", func(ev runtime.Event) {
 		switch ev.Type {
 		case "tool_start":
 			fmt.Fprintf(os.Stderr, "◐ %s %s\n", ev.Name, ev.Args)
@@ -625,6 +662,7 @@ func doctorCmd(c *runtime.Core) error {
 	check("openai-key", hasKey("OPENAI_API_KEY", c, "llm:openai"), "env or stored")
 	check("anthropic-key", hasKey("ANTHROPIC_API_KEY", c, "llm:anthropic"), "env or stored")
 	check("deepseek-key", hasKey("DEEPSEEK_API_KEY", c, "llm:deepseek"), "env or stored")
+	check("moonshot-key", hasKey("MOONSHOT_API_KEY", c, "llm:moonshot"), "env or stored")
 	return nil
 }
 

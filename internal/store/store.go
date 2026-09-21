@@ -102,4 +102,12 @@ CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, name TEXT, provider TE
 CREATE TABLE IF NOT EXISTS session_messages (session_id TEXT, idx INTEGER, role TEXT, content TEXT, PRIMARY KEY(session_id, idx));
 CREATE INDEX IF NOT EXISTS idx_sess_updated ON sessions(updated_at);
 `},
+	{3, `
+CREATE TABLE IF NOT EXISTS models_cache (provider TEXT, id TEXT, display_name TEXT, context_window INTEGER, reasoning TEXT, tools INTEGER, vision INTEGER, source TEXT, updated_at TEXT, PRIMARY KEY(provider, id));
+`},
+	{4, `
+ALTER TABLE sessions ADD COLUMN thinking TEXT DEFAULT '';
+ALTER TABLE sources ADD COLUMN command TEXT DEFAULT '';
+ALTER TABLE sources ADD COLUMN env TEXT DEFAULT '';
+`},
 }

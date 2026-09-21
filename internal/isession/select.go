@@ -41,6 +41,7 @@ func providerStatus(ctx *SessionCtx) []provInfo {
 		{"openai", yn(has("OPENAI_API_KEY", "llm:openai"))},
 		{"anthropic", yn(has("ANTHROPIC_API_KEY", "llm:anthropic"))},
 		{"deepseek", yn(has("DEEPSEEK_API_KEY", "llm:deepseek"))},
+		{"moonshot", yn(has("MOONSHOT_API_KEY", "llm:moonshot"))},
 		{"openai_compatible", os.Getenv("OPENAI_COMPAT_ENDPOINT")},
 	}
 }
@@ -48,9 +49,9 @@ func providerStatus(ctx *SessionCtx) []provInfo {
 func cmdLogin(ctx *SessionCtx, args string) error {
 	p := strings.ToLower(firstField(args))
 	switch p {
-	case "openai", "anthropic", "deepseek":
+	case "openai", "anthropic", "deepseek", "moonshot":
 	default:
-		return fmt.Errorf("usage: /login <openai|anthropic|deepseek>")
+		return fmt.Errorf("usage: /login <openai|anthropic|deepseek|moonshot>")
 	}
 	key, err := promptPassword(fmt.Sprintf("%s API key: ", p))
 	if err != nil || key == "" {
@@ -66,9 +67,9 @@ func cmdLogin(ctx *SessionCtx, args string) error {
 func cmdLogout(ctx *SessionCtx, args string) error {
 	p := strings.ToLower(firstField(args))
 	switch p {
-	case "openai", "anthropic", "deepseek":
+	case "openai", "anthropic", "deepseek", "moonshot":
 	default:
-		return fmt.Errorf("usage: /logout <openai|anthropic|deepseek>")
+		return fmt.Errorf("usage: /logout <openai|anthropic|deepseek|moonshot>")
 	}
 	_, err := ctx.Core.DB.DB.Exec(`DELETE FROM secrets WHERE key=?`, "llm:"+p)
 	if err != nil {
@@ -126,12 +127,19 @@ func modelOptions(ctx *SessionCtx) []modelOption {
 		r := ctx.Core.Cfg.Models[role]
 		out = append(out, modelOption{r.Provider, r.Model, "role:" + role})
 	}
-	for _, m := range []string{"qwen3:0.6b", "qwen3:4b", "llama3.1"} {
-		out = append(out, modelOption{"ollama", m, "local"})
+	for _, m := range ctx.Core.Registry().List(ctxBg(), "") {
+		note := "reasoning:" + m.Reasoning
+		if m.Source == "ollama" || m.Provider == "ollama" {
+			note = "local"
+		}
+		out = append(out, modelOption{m.Provider, m.ID, note})
 	}
 	seen := map[string]bool{}
 	var dedup []modelOption
 	for _, o := range out {
+		if o.prov == "" || o.model == "" {
+			continue
+		}
 		k := o.prov + "/" + o.model
 		if !seen[k] {
 			seen[k] = true

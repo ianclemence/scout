@@ -13,6 +13,7 @@ type Session struct {
 	Name      string
 	Provider  string
 	Model     string
+	Thinking  string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -29,16 +30,16 @@ func newID(prefix string) string {
 func Create(db *store.Store, name, provider, model string) (*Session, error) {
 	s := &Session{ID: newID("sess"), Name: name, Provider: provider, Model: model,
 		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
-	_, err := db.DB.Exec(`INSERT INTO sessions(id,name,provider,model,created_at,updated_at) VALUES(?,?,?,?,?,?)`,
-		s.ID, s.Name, s.Provider, s.Model, ts(s.CreatedAt), ts(s.UpdatedAt))
+	_, err := db.DB.Exec(`INSERT INTO sessions(id,name,provider,model,thinking,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`,
+		s.ID, s.Name, s.Provider, s.Model, "", ts(s.CreatedAt), ts(s.UpdatedAt))
 	return s, err
 }
 
 func Get(db *store.Store, id string) (*Session, error) {
 	var s Session
 	var c, u string
-	err := db.DB.QueryRow(`SELECT id,name,provider,model,created_at,updated_at FROM sessions WHERE id=?`, id).
-		Scan(&s.ID, &s.Name, &s.Provider, &s.Model, &c, &u)
+	err := db.DB.QueryRow(`SELECT id,name,provider,model,COALESCE(thinking,''),created_at,updated_at FROM sessions WHERE id=?`, id).
+		Scan(&s.ID, &s.Name, &s.Provider, &s.Model, &s.Thinking, &c, &u)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +62,7 @@ func Resolve(db *store.Store, ref string) (*Session, error) {
 }
 
 func List(db *store.Store) ([]Session, error) {
-	rows, err := db.DB.Query(`SELECT id,name,provider,model,created_at,updated_at FROM sessions ORDER BY updated_at DESC LIMIT 50`)
+	rows, err := db.DB.Query(`SELECT id,name,provider,model,COALESCE(thinking,''),created_at,updated_at FROM sessions ORDER BY updated_at DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +71,7 @@ func List(db *store.Store) ([]Session, error) {
 	for rows.Next() {
 		var s Session
 		var c, u string
-		rows.Scan(&s.ID, &s.Name, &s.Provider, &s.Model, &c, &u)
+		rows.Scan(&s.ID, &s.Name, &s.Provider, &s.Model, &s.Thinking, &c, &u)
 		s.CreatedAt, _ = time.Parse(time.RFC3339, c)
 		s.UpdatedAt, _ = time.Parse(time.RFC3339, u)
 		out = append(out, s)
@@ -81,6 +82,11 @@ func List(db *store.Store) ([]Session, error) {
 func Touch(db *store.Store, id, provider, model string) {
 	_, _ = db.DB.Exec(`UPDATE sessions SET updated_at=?, provider=?, model=? WHERE id=?`,
 		ts(time.Now().UTC()), provider, model, id)
+}
+
+// SetThinking persists the session reasoning level.
+func SetThinking(db *store.Store, id, level string) {
+	_, _ = db.DB.Exec(`UPDATE sessions SET thinking=?, updated_at=? WHERE id=?`, level, ts(time.Now().UTC()), id)
 }
 
 func AppendMessages(db *store.Store, sessionID string, msgs []Message) error {

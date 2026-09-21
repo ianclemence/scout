@@ -207,8 +207,9 @@ const (
 type WorkSource struct {
 	ID           string       `json:"id"`
 	Name         string       `json:"name"`
-	Kind         string       `json:"kind"` // mcp, api, manual
+	Kind         string       `json:"kind"` // mcp (remote), mcp-stdio (local command)
 	Endpoint     string       `json:"endpoint,omitempty"`
+	Command      string       `json:"command,omitempty"`
 	Enabled      bool         `json:"enabled"`
 	Capabilities []Capability `json:"capabilities"`
 }

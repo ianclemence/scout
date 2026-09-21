@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/exec"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -18,6 +20,22 @@ type Connector struct {
 	ID       string
 	Endpoint string
 	Token    string // OAuth access token, redacted everywhere
+	// Command, when set, runs a local stdio MCP server instead of remote HTTP.
+	Command []string
+	Env     []string
+}
+
+func (c *Connector) transport() mcp.Transport {
+	if len(c.Command) > 0 {
+		cmd := exec.Command(c.Command[0], c.Command[1:]...)
+		cmd.Env = append(os.Environ(), c.Env...)
+		return &mcp.CommandTransport{Command: cmd}
+	}
+	t := &mcp.StreamableClientTransport{Endpoint: c.Endpoint}
+	if c.Token != "" {
+		t.HTTPClient = &http.Client{Transport: &authRoundTripper{token: c.Token}}
+	}
+	return t
 }
 
 type ToolInfo struct {
@@ -27,11 +45,7 @@ type ToolInfo struct {
 
 func (c *Connector) ListTools(ctx context.Context) ([]ToolInfo, error) {
 	client := mcp.NewClient(&mcp.Implementation{Name: "scout", Version: version.Version}, nil)
-	t := &mcp.StreamableClientTransport{Endpoint: c.Endpoint}
-	if c.Token != "" {
-		t.HTTPClient = &http.Client{Transport: &authRoundTripper{token: c.Token}}
-	}
-	sess, err := client.Connect(ctx, t, nil)
+	sess, err := client.Connect(ctx, c.transport(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("mcp connect %s: %w", c.Endpoint, err)
 	}
@@ -49,11 +63,7 @@ func (c *Connector) ListTools(ctx context.Context) ([]ToolInfo, error) {
 
 func (c *Connector) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
 	client := mcp.NewClient(&mcp.Implementation{Name: "scout", Version: version.Version}, nil)
-	t := &mcp.StreamableClientTransport{Endpoint: c.Endpoint}
-	if c.Token != "" {
-		t.HTTPClient = &http.Client{Transport: &authRoundTripper{token: c.Token}}
-	}
-	sess, err := client.Connect(ctx, t, nil)
+	sess, err := client.Connect(ctx, c.transport(), nil)
 	if err != nil {
 		return "", fmt.Errorf("mcp connect: %w", err)
 	}

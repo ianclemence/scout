@@ -25,6 +25,10 @@ type Request struct {
 	Messages    []Message `json:"messages"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Temperature float64   `json:"temperature"`
+	// Thinking normalizes reasoning effort: off, low, medium, high, max.
+	// Each provider maps these to its own controls; unsupported levels
+	// degrade to the closest capability (never an invalid value).
+	Thinking string `json:"thinking,omitempty"`
 }
 
 type Provider interface {
@@ -48,9 +52,11 @@ func New(cfg Config) (Provider, error) {
 	httpClient := &http.Client{Timeout: 120 * time.Second}
 	switch cfg.Provider {
 	case "openai":
-		return &openaiCompat{name: "openai", endpoint: epOr(cfg.Endpoint, "https://api.openai.com/v1"), apiKey: cfg.APIKey, model: cfg.Model, c: httpClient}, nil
+		return &openaiCompat{name: "openai", endpoint: epOr(cfg.Endpoint, "https://api.openai.com/v1"), apiKey: cfg.APIKey, model: cfg.Model, c: httpClient, think: thinkOpenAI}, nil
 	case "deepseek":
-		return &openaiCompat{name: "deepseek", endpoint: epOr(cfg.Endpoint, "https://api.deepseek.io"), apiKey: cfg.APIKey, model: cfg.Model, c: httpClient}, nil
+		return &openaiCompat{name: "deepseek", endpoint: epOr(cfg.Endpoint, "https://api.deepseek.com"), apiKey: cfg.APIKey, model: cfg.Model, c: httpClient, think: thinkDeepSeek}, nil
+	case "moonshot":
+		return &openaiCompat{name: "moonshot", endpoint: epOr(cfg.Endpoint, "https://api.moonshot.ai/v1"), apiKey: cfg.APIKey, model: cfg.Model, c: httpClient, think: thinkMoonshot}, nil
 	case "openai_compatible":
 		if cfg.Endpoint == "" {
 			return nil, fmt.Errorf("openai_compatible requires endpoint")
@@ -77,6 +83,73 @@ type openaiCompat struct {
 	apiKey   string
 	model    string
 	c        *http.Client
+	// think maps the normalized Thinking level onto the request body.
+	think func(model, level string, body map[string]any)
+}
+
+// Normalized thinking levels.
+const (
+	ThinkOff    = "off"
+	ThinkLow    = "low"
+	ThinkMedium = "medium"
+	ThinkHigh   = "high"
+	ThinkMax    = "max"
+)
+
+func normThink(s string) string {
+	switch s {
+	case ThinkLow, ThinkMedium, ThinkHigh, ThinkMax, ThinkOff:
+		return s
+	default:
+		return ""
+	}
+}
+
+// thinkOpenAI maps to reasoning_effort (gpt-5 family: minimal/low/medium/high).
+func thinkOpenAI(model, level string, body map[string]any) {
+	switch normThink(level) {
+	case ThinkLow:
+		body["reasoning_effort"] = "low"
+	case ThinkMedium:
+		body["reasoning_effort"] = "medium"
+	case ThinkHigh, ThinkMax:
+		body["reasoning_effort"] = "high"
+	}
+}
+
+// thinkDeepSeek maps to thinking.type + reasoning_effort (per current API docs).
+func thinkDeepSeek(model, level string, body map[string]any) {
+	switch normThink(level) {
+	case ThinkOff:
+		// omit: default non-thinking behavior
+	case ThinkLow, ThinkMedium:
+		body["thinking"] = map[string]string{"type": "enabled"}
+	case ThinkHigh, ThinkMax:
+		body["thinking"] = map[string]string{"type": "enabled"}
+		body["reasoning_effort"] = "high"
+	}
+}
+
+// thinkMoonshot maps per Kimi model family: kimi-k3 uses reasoning_effort
+// (low/high/max, always thinking); kimi-k2.x uses thinking.type.
+func thinkMoonshot(model, level string, body map[string]any) {
+	m := strings.ToLower(model)
+	if strings.HasPrefix(m, "kimi-k3") {
+		switch normThink(level) {
+		case ThinkOff, ThinkLow:
+			body["reasoning_effort"] = "low"
+		case ThinkMedium:
+			body["reasoning_effort"] = "high"
+		default:
+			body["reasoning_effort"] = "max"
+		}
+		return
+	}
+	if normThink(level) == ThinkOff {
+		body["thinking"] = map[string]string{"type": "disabled"}
+	} else if normThink(level) != "" {
+		body["thinking"] = map[string]string{"type": "enabled"}
+	}
 }
 
 func (p *openaiCompat) Name() string { return p.name }
@@ -93,9 +166,13 @@ func (p *openaiCompat) Complete(req Request) (string, error) {
 	for _, m := range req.Messages {
 		msgs = append(msgs, map[string]string{"role": m.Role, "content": m.Content})
 	}
-	body, _ := json.Marshal(map[string]any{
+	bodyMap := map[string]any{
 		"model": model, "messages": msgs, "temperature": req.Temperature,
-	})
+	}
+	if p.think != nil {
+		p.think(model, req.Thinking, bodyMap)
+	}
+	body, _ := json.Marshal(bodyMap)
 	hreq, _ := http.NewRequest("POST", strings.TrimSuffix(p.endpoint, "/")+"/chat/completions", bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	if p.apiKey != "" {
@@ -154,7 +231,15 @@ func (p *ollama) Complete(req Request) (string, error) {
 	for _, m := range req.Messages {
 		msgs = append(msgs, map[string]string{"role": m.Role, "content": m.Content})
 	}
-	body, _ := json.Marshal(map[string]any{"model": model, "messages": msgs, "stream": false})
+	bodyMap := map[string]any{"model": model, "messages": msgs, "stream": false}
+	// Ollama native thinking switch (qwen3/gpt-oss style `think` flag).
+	switch normThink(req.Thinking) {
+	case ThinkOff:
+		bodyMap["think"] = false
+	case ThinkLow, ThinkMedium, ThinkHigh, ThinkMax:
+		bodyMap["think"] = true
+	}
+	body, _ := json.Marshal(bodyMap)
 	hreq, _ := http.NewRequest("POST", p.endpoint+"/api/chat", bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	resp, err := p.c.Do(hreq)
@@ -210,9 +295,14 @@ func (p *anthropic) Complete(req Request) (string, error) {
 	if maxTok == 0 {
 		maxTok = 1024
 	}
-	body, _ := json.Marshal(map[string]any{
+	bodyMap := map[string]any{
 		"model": model, "max_tokens": maxTok, "system": req.System, "messages": msgs,
-	})
+	}
+	// Anthropic extended thinking: budget must be < max_tokens.
+	if budget := anthropicBudget(req.Thinking, maxTok); budget > 0 {
+		bodyMap["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+	}
+	body, _ := json.Marshal(bodyMap)
 	hreq, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("x-api-key", p.apiKey)
@@ -239,6 +329,30 @@ func (p *anthropic) Complete(req Request) (string, error) {
 		sb.WriteString(c.Text)
 	}
 	return sb.String(), nil
+}
+
+// anthropicBudget maps levels to thinking budgets (clamped below maxTok).
+func anthropicBudget(level string, maxTok int) int {
+	var want int
+	switch normThink(level) {
+	case ThinkLow:
+		want = 1024
+	case ThinkMedium:
+		want = 4000
+	case ThinkHigh:
+		want = 10000
+	case ThinkMax:
+		want = 20000
+	default:
+		return 0
+	}
+	if want >= maxTok {
+		want = maxTok - 1
+	}
+	if want < 1024 {
+		want = 1024
+	}
+	return want
 }
 
 func epOr(v, d string) string {
@@ -322,9 +436,13 @@ func (p *openaiCompat) Stream(ctx context.Context, req Request, emit func(string
 	if model == "" {
 		model = p.model
 	}
-	body, _ := json.Marshal(map[string]any{
+	bodyMap := map[string]any{
 		"model": model, "messages": chatMsgs(req), "temperature": req.Temperature, "stream": true,
-	})
+	}
+	if p.think != nil {
+		p.think(model, req.Thinking, bodyMap)
+	}
+	body, _ := json.Marshal(bodyMap)
 	hreq, err := http.NewRequestWithContext(ctx, "POST", strings.TrimSuffix(p.endpoint, "/")+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -394,9 +512,13 @@ func (p *anthropic) Stream(ctx context.Context, req Request, emit func(string) e
 	if maxTok == 0 {
 		maxTok = 2048
 	}
-	body, _ := json.Marshal(map[string]any{
+	bodyMapA := map[string]any{
 		"model": model, "max_tokens": maxTok, "system": req.System, "messages": msgs, "stream": true,
-	})
+	}
+	if budget := anthropicBudget(req.Thinking, maxTok); budget > 0 {
+		bodyMapA["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+	}
+	body, _ := json.Marshal(bodyMapA)
 	hreq, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
 	if err != nil {
 		return err

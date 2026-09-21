@@ -1,17 +1,18 @@
 # CHANGELOG
 
+## v0.3.0 (2026-09-21)
+
+- Five first-class providers: OpenAI, Anthropic, Ollama, DeepSeek, Moonshot — each with verified endpoints, model defaults, and provider-specific reasoning mapping
+- Model registry: built-in catalog + provider `/models` discovery + live Ollama tags + SQLite cache + `scout models refresh`, offline fallback, unknown metadata stays unknown
+- Normalized reasoning levels (`off/low/medium/high/max`) per session (`/thinking`), mapped per provider (reasoning_effort, thinking blocks, Ollama think flag)
+- Credential precedence: credential store > environment; masked `/login`; `scout login`
+- MCP client supports local stdio/command servers in addition to remote HTTP; `integrations add --command`
+- Registry-backed `/model` picker with context/reasoning metadata
+
 ## v0.2.0 (2026-09-21)
 
-Terminal-native redesign. The browser UI was removed; Scout is now a CLI/TUI-first agent.
-
-- Interactive `scout` session: readline prompt, slash commands, streaming responses, tool activity lines, Ctrl-C interrupt, history file
-- ReAct agent runtime over a domain tool registry, with events, bounded retry, session persistence, resume, and LLM-summarized compacting
-- In-session model switching (`/model` selector), provider status, masked `/login` key storage
-- Shared Scout Core (`internal/runtime`) powering CLI, session, and MCP server
-- MCP server renamed to domain tools (`get_profile`, `search_opportunities`, `analyze_opportunity`, `match_opportunity`, `prepare_proposal`, `get_pipeline`, `approve_action`, …)
-- Layered config (defaults < file < env), per-role models, `scout ask --json` for scripting
-- SQLite schema v2 (sessions, session_messages)
+Terminal-native agent: interactive session with slash commands, streaming ReAct runtime over a domain tool registry, session persistence/resume/compact, in-session model switching, shared Core for CLI/session/MCP server, domain-named MCP tools, layered configuration.
 
 ## v0.1.0 (2026-09-21)
 
-Initial release: profile/CV import, opportunity matching, proposal drafts, approval queue, Upwork MCP client, web UI (removed in v0.2.0).
+Initial release: profile/CV import, opportunity matching, proposal drafts, approval queue, Upwork MCP client.
