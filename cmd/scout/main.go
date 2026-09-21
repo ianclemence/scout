@@ -748,8 +748,32 @@ func doctorCmd(c *runtime.Core) error {
 	check("anthropic-key", hasKey("ANTHROPIC_API_KEY", c, "llm:anthropic"), "env or stored")
 	check("deepseek-key", hasKey("DEEPSEEK_API_KEY", c, "llm:deepseek"), "env or stored")
 	check("moonshot-key", hasKey("MOONSHOT_API_KEY", c, "llm:moonshot"), "env or stored")
+	if sk, err := skills.Load(); err == nil {
+		check("skills", true, fmt.Sprintf("%d embedded", len(sk.List())))
+	} else {
+		check("skills", false, err.Error())
+	}
+	check("tools", true, fmt.Sprintf("%d registered", len(c.Tools())))
+	if free, total, err := diskUsage(cfg.DataDir); err == nil {
+		check("disk", free > 256<<20, fmt.Sprintf("%.1fG free of %.1fG", gb(free), gb(total)))
+	}
+	if st, err := serviceState(); err == nil {
+		check("service", st == "active", "scout user unit "+st)
+	} else {
+		check("service", false, "user unit not found")
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		cf := filepath.Join(home, ".config", "scout", "config.json")
+		if _, err := os.Stat(cf); err == nil {
+			check("config-file", true, cf)
+		} else {
+			check("config-file", true, "defaults+env (no file)")
+		}
+	}
 	return nil
 }
+
+func gb(b uint64) float64 { return float64(b) / 1e9 }
 
 func hasKey(env string, c *runtime.Core, secretKey string) bool {
 	if os.Getenv(env) != "" {

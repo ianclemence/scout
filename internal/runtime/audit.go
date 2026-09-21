@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/ianclemence/scout/internal/redact"
 )
 
 // CheckApproval enforces the permission model: external and financial tools
@@ -35,12 +37,14 @@ func (c *Core) CheckApproval(tool *Tool, args map[string]any) (string, error) {
 	return id, nil
 }
 
-// Audit records a tool invocation for traceability.
+// Audit records a tool invocation for traceability. Summaries pass through
+// secret redaction: credentials must never reach persistent text.
 func (c *Core) Audit(tool *Tool, source, oppID, approvalID string, success bool, summary string) {
 	ok := 0
 	if success {
 		ok = 1
 	}
+	summary = redact.Text(summary)
 	if len(summary) > 500 {
 		summary = summary[:500]
 	}

@@ -8,9 +8,10 @@ internal/
   domain/            marketplace-independent types (Opportunity, Proposal,
                      Application, PendingAction, Evidence, WorkSource, Capability)
   config/            defaults <- config file <- env. One coherent model.
-  store/             SQLite (pure Go) + PRAGMA user_version migrations (v2)
+  store/             SQLite (pure Go) + versioned migrations (v5)
   csession/          session CRUD, message history, compact support
   secret/            AES-256-GCM master key (SCOUT_MASTER_KEY or 0600 key file)
+  redact/            secret masking for logs, errors, and audit rows
   llm/               Provider interface: Complete + Stream (SSE). Providers:
                      openai, anthropic, deepseek, moonshot, ollama,
                      openai_compatible. Normalized reasoning levels mapped
@@ -19,13 +20,17 @@ internal/
                      + SQLite cache + offline fallback
   profile/           CV import → structured profile (source of truth) + evidence
   match/             deterministic filters, fingerprints, heuristic dimensions, risks
-  agent/             system prompt + proposal/match LLM enrichment helpers
-  runtime/           SCOUT CORE: services, tool registry, ReAct agent loop w/ events
-  isession/          REPL (readline), slash registry, streaming render,
-                     model selector, login/logout, compact, interrupt handling
-  mcpclient/         Scout as MCP client (official Go SDK, Streamable HTTP)
-  upwork/            adapter: capability discovery + normalization, no scraping
-  approve/           approval state machine
+  agent/             core agent instructions + proposal/match LLM helpers
+  runtime/           SCOUT CORE: services, typed tool registry, permissions,
+                     audit log, ReAct agent loop w/ events, skill selection
+  skills/            18 embedded SKILL.md workflows + registry/selection
+  sources/           OpportunitySource interface: local, MCP, fake adapters
+  isession/          slash registry + line-mode loop (non-TTY fallback)
+  tui/               Bubble Tea session: scrollback transcript, composer,
+                     palette, pickers, approval card, footer, markdown
+  mcpclient/         Scout as MCP client (official Go SDK; HTTP + stdio)
+  upwork/            first MCP adapter helpers (endpoint, discovery mapping)
+  approve/           approval state machine + lifecycle events
   mcpserver/         Scout as MCP server on top of runtime tools
   version/
 scripts/             systemd unit (MCP server) + install script
@@ -46,12 +51,13 @@ CLI, session, and MCP server call the same Core. No duplicated business rules.
 
 ## Agent loop
 
-ReAct over the tool registry: system prompt + catalog; the model emits one
-```tool {"name","arguments"} block per turn; results return as untrusted data;
-loop ends with a plain-text answer or MaxTurns. Events (agent_start,
-turn_start, token, tool_start/end, error, agent_end) drive the transcript
-renderer. Context cancel = Ctrl-C interrupt. One bounded retry on provider
-failure.
+ReAct over the tool registry: system prompt + selected skill summaries +
+compact tool catalog; the model emits one ```tool {"name","arguments"} block
+per turn (full skill bodies load via load_skill); results return as untrusted
+data; loop ends with a plain-text answer or MaxTurns (8 turns, max 3 calls per
+tool per turn). Events (agent_start, turn_start, token, tool_start/end,
+error, agent_end) drive the transcript renderer. Context cancel = Ctrl-C
+interrupt. One bounded retry on provider failure.
 
 ReAct (not native function-calling) is deliberate: it works uniformly across
 OpenAI, Anthropic, DeepSeek, Ollama, and small local models without
@@ -63,7 +69,7 @@ System instructions > profile/preferences > relevant evidence > session
 history > tool results > external marketplace content (untrusted data, never
 instructions). The loop re-labels tool results as data on every turn.
 
-## Comparative review: Pi, OpenCode vs Scout (summary)
+## Comparative review: Pi, OpenCode, Ghost vs Scout (summary)
 
 OpenCode (v2.0.11, inspected on this Pi) contributed: named MCP servers with
 local-command vs remote-URL kinds, global/project config layering, separate
@@ -75,15 +81,14 @@ precedence, registry-backed `models`, SQLite everything. Scout rejects:
 background-service architecture (single process on a Pi), plugin system,
 project-scoped configs (single-user tool).
 
-| Area | Pi | Scout v0.2 | Adopt / Reject |
-|---|---|---|---|
-| Terminal UX | custom alt/main-screen TUI framework | scrolling transcript + readline prompt | Adopt transcript + status info; reject alt-screen framework (SSH/scripting cost) |
-| Sessions | manager: resume/fork/tree/compact/share | SQLite sessions: create/resume/compact, history file | Adopt resume + compact; reject fork/tree/share (no coding-session need) |
-| Providers | registry + generated model catalog + OAuth | interface + 5 providers + env/file/stored keys | Adopt registry + switching; reject generated catalog + OAuth (vendor weight) |
-| Agent loop | native tool declarations, streaming events | ReAct JSON blocks, streaming events | Adopt event sourcing + retry + interrupt; adapt tool binding for small models |
-| Tools | bash/fs/editing with approval prompts | domain tools; consequential = PendingAction | Adopt compact tool lines; approvals are first-class records, not prompts |
-| MCP | extensions via MCP | client (Upwork) + server (Scout) via official SDK | Adopt capability discovery; reject extension/plugin system |
-| Config | file + interactive menus + reload | file + env + /model + scout config | Adopt layered model; reject live-reload complexity |
-| Secrets | OS keychain/auth storage | encrypted SQLite + env | Adapt: keychain unavailable headless; 0600 + AES-GCM documented |
-| Persistence | sqlite session backend + JSONL export | SQLite everything (v2 migrations) | Adopt SQLite; reject JSONL export (add only on demand) |
-| Testing | vitest + harness + faux provider | go test + fakeProvider in runtime | Adopt faux-provider loop tests; reject e2e-with-keys (never hit real writes) |
+| Area | Pi | Ghost | Scout v0.3 | Adopt / Reject |
+|---|---|---|---|---|
+| Terminal UX | custom alt/main-screen TUI framework | Bubble Tea scrollback transcript + dock + footer | same model, Scout theme | Adopt Ghost's layout; Scout colors/commands |
+| Sessions | manager: resume/fork/tree/compact/share | threads, contexts, history | SQLite sessions: create/resume/compact, history file | Adopt resume + compact; reject fork/tree/contexts |
+| Providers | registry + generated model catalog + OAuth | provider/modelreg + routing | interface + 5 providers + registry + env/file/stored keys | Adopt registry + switching; reject generated catalogs |
+| Agent loop | native tool declarations, streaming events | gated capabilities + budgets | ReAct JSON blocks, events, per-tool call budget | Adopt event sourcing + budgets; adapt tool binding |
+| Tools | bash/fs/editing with approval prompts | tool registry + permission broker (allow/ask/deny) | domain tools + permission classes + approvals | Adopt broker thinking, always-ask for external; reject auto modes |
+| Approvals | prompts | durable permission requests + standing grants | PendingAction records + lifecycle events | Adopt lifecycle events; reject standing auto-grants |
+| Secrets | OS keychain/auth storage | vault + redaction | encrypted SQLite + env + redact helper | Adopt redaction; keychain unavailable headless |
+| Persistence | sqlite session backend + JSONL export | SQLite + canonical events | SQLite v5 (events + tool_audit + cache tables) | Adopt canonical-event thinking; reject export formats |
+| Testing | vitest + harness + faux provider | golden suites + arch tests | go test + fake source + fake provider | Adopt fakes; reject heavy golden harness (for now) |

@@ -13,7 +13,8 @@ func newID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// Create inserts a pending action in draft or pending_approval status.
+// Create inserts a pending action in pending_approval status and records
+// the canonical lifecycle event (model output is never the record).
 func Create(db *store.Store, source, actionType, target, payload, risk string) (*domain.PendingAction, error) {
 	a := &domain.PendingAction{
 		ID: newID("act"), Source: source, ActionType: actionType, Target: target,
@@ -21,7 +22,11 @@ func Create(db *store.Store, source, actionType, target, payload, risk string) (
 	}
 	_, err := db.DB.Exec(`INSERT INTO pending_actions(id,source,action_type,target,payload,risk_level,status,created_at) VALUES(?,?,?,?,?,?,?,?)`,
 		a.ID, a.Source, a.ActionType, a.Target, a.Payload, a.RiskLevel, a.Status, a.CreatedAt.Format(time.RFC3339))
-	return a, err
+	if err != nil {
+		return nil, err
+	}
+	event(db, "approval_requested", a.ID+" "+a.ActionType+" "+a.Target)
+	return a, nil
 }
 
 func SetStatus(db *store.Store, id, status string) error {
@@ -34,7 +39,16 @@ func SetStatus(db *store.Store, id, status string) error {
 	if n == 0 {
 		return fmt.Errorf("action %s not found", id)
 	}
+	switch status {
+	case "approved", "rejected", "executed", "failed", "cancelled":
+		event(db, "approval_"+status, id)
+	}
 	return nil
+}
+
+func event(db *store.Store, kind, detail string) {
+	_, _ = db.DB.Exec(`INSERT INTO events(id,kind,detail,created_at) VALUES(?,?,?,?)`,
+		newID("evt"), kind, detail, time.Now().UTC().Format(time.RFC3339))
 }
 
 func List(db *store.Store, onlyPending bool) ([]domain.PendingAction, error) {

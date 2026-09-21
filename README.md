@@ -40,7 +40,7 @@ You state a goal. Scout checks your profile, finds fitting work, drafts the appl
 You → Scout → fitting work → draft → YOUR APPROVAL → done → tracked
 ```
 
-One shared core drives the interactive session, one-shot commands, and the MCP server. Policy lives in the system prompt, workflows in 18 skills, capabilities in 48 permission-gated tools, job sources behind one adapter interface.
+One shared core drives the interactive session, one-shot commands, and the MCP server. Policy lives in the system prompt, workflows in 18 skills, capabilities in 49 permission-gated tools, job sources behind one adapter interface.
 
 ---
 
@@ -235,7 +235,8 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `scout login <provider>` | Store API key (masked prompt) |
 | `scout integrations [list\|add\|test]` | Work sources and MCP connectors |
 | `scout sessions [list]` | Persistent sessions |
-| `scout doctor` | Diagnostics (DB, providers, Ollama, disk, version) |
+| `scout skills [query]` / `scout tools` | Skill workflows and typed tool registry |
+| `scout doctor` | Diagnostics (DB, providers, Ollama, disk, version, service) |
 | `scout backup <file>` / `scout restore <file>` | Data backup and restore |
 | `scout update [--dry-run] [--force]` | Self-update |
 | `scout mcp [stdio\|serve]` | MCP server for other agents |
@@ -256,6 +257,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `/model [provider/model]` | Switch conversation model in-session (numbered picker) |
 | `/thinking <off\|low\|medium\|high\|max>` | Reasoning level, mapped to provider controls |
 | `/models`, `/providers`, `/sources` | Catalog, credentials, integrations |
+| `/skills`, `/tools` | Skill workflows, tool registry with permission classes |
 | `/login <provider>`, `/logout <provider>` | Key management |
 | `/session`, `/sessions`, `/new`, `/resume`, `/compact`, `/clear` | Session lifecycle |
 | `/doctor`, `/quit` | Diagnostics, exit |

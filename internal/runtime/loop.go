@@ -45,6 +45,10 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 	}
 	emit(Event{Type: "agent_start"})
 	msgs := append([]llm.Message{}, history...)
+	// Attempt budget: no single tool runs more than N times per turn.
+	// Cheap, deterministic runaway protection on metered APIs and slow hardware.
+	calls := map[string]int{}
+	const maxCallsPerTool = 3
 	// Skill selection: last user message determines relevant workflows.
 	// Only selected skill bodies enter context (never the whole library).
 	skillBlock := ""
@@ -100,6 +104,13 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 			msgs = append(msgs,
 				llm.Message{Role: "assistant", Content: text},
 				llm.Message{Role: "user", Content: fmt.Sprintf("Tool error: unknown tool %q. Available tools are listed in the system prompt. Continue without it or answer directly.", name)})
+			continue
+		}
+		calls[name]++
+		if calls[name] > maxCallsPerTool {
+			msgs = append(msgs,
+				llm.Message{Role: "assistant", Content: text},
+				llm.Message{Role: "user", Content: fmt.Sprintf("Budget: tool %q already ran %d times this turn. Finish with what you have.", name, maxCallsPerTool)})
 			continue
 		}
 		emit(Event{Type: "tool_start", Name: name, Args: summarizeArgs(args)})
