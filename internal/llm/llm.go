@@ -1,5 +1,5 @@
 // Package llm defines a clean provider abstraction.
-// Supports OpenAI, Anthropic, Ollama (native + OpenAI-compatible),
+// Supports OpenAI, Anthropic, DeepSeek, Ollama (native + OpenAI-compatible),
 // and generic OpenAI-compatible endpoints. One shared HTTP core.
 package llm
 
@@ -45,6 +45,8 @@ func New(cfg Config) (Provider, error) {
 	switch cfg.Provider {
 	case "openai":
 		return &openaiCompat{name: "openai", endpoint: epOr(cfg.Endpoint, "https://api.openai.com/v1"), apiKey: cfg.APIKey, model: cfg.Model, c: httpClient}, nil
+	case "deepseek":
+		return &openaiCompat{name: "deepseek", endpoint: epOr(cfg.Endpoint, "https://api.deepseek.io"), apiKey: cfg.APIKey, model: cfg.Model, c: httpClient}, nil
 	case "openai_compatible":
 		if cfg.Endpoint == "" {
 			return nil, fmt.Errorf("openai_compatible requires endpoint")

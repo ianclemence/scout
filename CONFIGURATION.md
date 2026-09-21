@@ -11,6 +11,7 @@ Precedence: **environment variables > database/app settings > defaults**.
 | `OLLAMA_HOST` | `http://127.0.0.1:11434` | local model endpoint |
 | `OPENAI_API_KEY` | — | OpenAI provider |
 | `ANTHROPIC_API_KEY` | — | Anthropic provider |
+| `DEEPSEEK_API_KEY` | — | DeepSeek provider (OpenAI-compatible, default model `deepseek-chat`) |
 | `OPENAI_COMPAT_ENDPOINT` / `OPENAI_COMPAT_KEY` | — | generic endpoint (e.g. OpenRouter) |
 | `SCOUT_MODEL_{SCREENING,ANALYSIS,PROPOSAL,CONVERSATION,DEEP}[_PROVIDER]` | ollama / `qwen3:0.6b` | per-role routing |
 

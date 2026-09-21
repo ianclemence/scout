@@ -23,7 +23,7 @@ Scout is **not an Upwork bot**. It is a general-purpose, marketplace-independent
 - Pipeline: discovered → analyzed → review → proposal → submitted → viewed/replied/interview/offer/contract/won (+ rejected/dismissed/expired/lost/withdrawn)
 - Integrations: MCP connector registry with capability discovery (Upwork pre-registered)
 - Interfaces: responsive web UI, full CLI (SSH-friendly), Scout MCP server (stdio + Streamable HTTP) for Claude/Codex/OpenCode/ChatGPT/Cursor
-- LLM: OpenAI, Anthropic, Ollama, OpenAI-compatible endpoints; per-role models (screening/analysis/proposal/conversation/deep_analysis)
+- LLM: OpenAI, Anthropic, DeepSeek, Ollama, OpenAI-compatible endpoints; per-role models (screening/analysis/proposal/conversation/deep_analysis)
 - Safety: secrets encrypted (AES-256-GCM), auth-gated UI, prompt-injection defenses (external content = untrusted data), dry-run mode
 
 ## Architecture

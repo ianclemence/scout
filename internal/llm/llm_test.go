@@ -20,3 +20,10 @@ func TestNewOllamaDefault(t *testing.T) {
 		t.Fatalf("expected ollama provider, %v", err)
 	}
 }
+
+func TestNewDeepseekEndpoint(t *testing.T) {
+	p, err := New(Config{Provider: "deepseek", Model: "deepseek-chat", APIKey: "test"})
+	if err != nil || p.Name() != "deepseek" {
+		t.Fatalf("expected deepseek provider, %v", err)
+	}
+}
