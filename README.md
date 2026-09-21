@@ -44,6 +44,8 @@ You → Scout session → profile/evidence → deterministic filters
 
 **One product, three interfaces on one core.** The **interactive session** (`scout`) is the daily driver — talk, review, approve. **One-shot commands** (`scout analyze …`) script the same operations. The **Scout MCP server** lets OpenCode, Codex, or Claude drive the same core. They share `internal/runtime`, so a rule never exists in two places.
 
+**Behavior is layered, not monolithic.** The system prompt sets policy; 18 skills (`scout skills`) define reusable workflows selected per request; 48 tools (`scout tools`) provide typed capabilities under permission classes (`read/analyze/draft/mutate_local/external_action/financial`), with external actions gated on approved approvals and every call audit-logged. Job sources sit behind one `OpportunitySource` interface — adding LinkedIn-style listings later is an adapter exercise, not a rewrite.
+
 ---
 
 ## Requirements

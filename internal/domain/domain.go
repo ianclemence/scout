@@ -88,27 +88,39 @@ type Client struct {
 }
 
 type Opportunity struct {
-	ID            string    `json:"id"`
-	Source        string    `json:"source"`
-	SourceOppID   string    `json:"source_opp_id"`
-	CanonicalURL  string    `json:"canonical_url,omitempty"`
-	Title         string    `json:"title"`
-	Description   string    `json:"description"`
-	Skills        []string  `json:"skills"`
-	Category      string    `json:"category,omitempty"`
-	BudgetMin     float64   `json:"budget_min"`
-	BudgetMax     float64   `json:"budget_max"`
-	BudgetType    string    `json:"budget_type,omitempty"` // fixed, hourly, unknown
-	HourlyRateMin float64   `json:"hourly_rate_min"`
-	HourlyRateMax float64   `json:"hourly_rate_max"`
-	ConnectsCost  int       `json:"connects_cost"`
-	PostedAt      time.Time `json:"posted_at"`
-	Fingerprint   string    `json:"fingerprint"`
-	Client        *Client   `json:"client,omitempty"`
-	RawSnapshot   string    `json:"raw_snapshot,omitempty"`
-	Status        string    `json:"status"` // discovered, saved, analyzed, review, dismissed, expired
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID             string    `json:"id"`
+	Source         string    `json:"source"`
+	SourceOppID    string    `json:"source_opp_id"`
+	CanonicalURL   string    `json:"canonical_url,omitempty"`
+	SourceURL      string    `json:"source_url,omitempty"`
+	Title          string    `json:"title"`
+	Company        string    `json:"company,omitempty"`
+	Description    string    `json:"description"`
+	EmploymentType string    `json:"employment_type,omitempty"`
+	EngagementType string    `json:"engagement_type,omitempty"`
+	Location       string    `json:"location,omitempty"`
+	RemoteStatus   string    `json:"remote_status,omitempty"`
+	Skills         []string  `json:"skills"`
+	Technologies   []string  `json:"technologies,omitempty"`
+	Requirements   []string  `json:"requirements,omitempty"`
+	Category       string    `json:"category,omitempty"`
+	BudgetMin      float64   `json:"budget_min"`
+	BudgetMax      float64   `json:"budget_max"`
+	BudgetType     string    `json:"budget_type,omitempty"`
+	Currency       string    `json:"currency,omitempty"`
+	HourlyRateMin  float64   `json:"hourly_rate_min"`
+	HourlyRateMax  float64   `json:"hourly_rate_max"`
+	ConnectsCost   int       `json:"connects_cost"`
+	PostedAt       time.Time `json:"posted_at"`
+	Deadline       string    `json:"deadline,omitempty"`
+	Fingerprint    string    `json:"fingerprint"`
+	Client         *Client   `json:"client,omitempty"`
+	RawSnapshot    string    `json:"raw_snapshot,omitempty"`
+	Provenance     string    `json:"provenance,omitempty"`
+	Status         string    `json:"status"`
+	LiveStatus     string    `json:"live_status,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
 type MatchDimension struct {

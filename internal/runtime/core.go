@@ -22,6 +22,7 @@ import (
 	"github.com/ianclemence/scout/internal/profile"
 	"github.com/ianclemence/scout/internal/registry"
 	"github.com/ianclemence/scout/internal/secret"
+	"github.com/ianclemence/scout/internal/sources"
 	"github.com/ianclemence/scout/internal/store"
 )
 
@@ -49,6 +50,8 @@ func newID(prefix string) string {
 // ---------- profile ----------
 
 func (c *Core) Profile() (*domain.ProfessionalProfile, error) { return profile.Load(c.DB) }
+
+func saveProfile(c *Core, p *domain.ProfessionalProfile) error { return profile.Save(c.DB, p) }
 
 func (c *Core) Evidence(limit int) ([]domain.Evidence, error) {
 	all, err := profile.ListEvidence(c.DB)
@@ -489,6 +492,58 @@ func probeOllama(host string) bool {
 	}
 	defer resp.Body.Close()
 	return resp.StatusCode < 500
+}
+
+// ---------- source registry ----------
+
+// SourceRegistry builds adapters from configured sources: the local store
+// plus one MCP adapter per configured connector.
+func (c *Core) SourceRegistry() *sources.Registry {
+	return c.SourceRegistryWith(nil)
+}
+
+// SourceRegistryWith allows tests to inject extra adapters.
+func (c *Core) SourceRegistryWith(extra []sources.OpportunitySource) *sources.Registry {
+	reg := sources.NewRegistry()
+	reg.Add(&sources.ManualSource{
+		IDValue: "local",
+		SearchFunc: func(ctx context.Context, f sources.SearchFilter) ([]domain.Opportunity, error) {
+			opps, err := c.ListOpportunities(OpportunityFilter{Query: f.Query, Limit: lim(f.Limit)})
+			if err != nil {
+				return nil, err
+			}
+			return opps, nil
+		},
+		GetFunc: func(ctx context.Context, id string) (*domain.Opportunity, error) {
+			return c.GetOpportunity(id)
+		},
+	})
+	rows, err := c.DB.DB.Query(`SELECT name,kind,endpoint,COALESCE(command,'') FROM sources WHERE enabled=1`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var name, kind, endpoint, command string
+			rows.Scan(&name, &kind, &endpoint, &command)
+			tok, _ := c.LoadSecret("mcp:" + name)
+			conn, err := sources.ConnectorFor(kind, endpoint, command, tok)
+			if err != nil {
+				continue
+			}
+			id := "src-" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+			reg.Add(sources.NewMCPAdapter(id, name, conn))
+		}
+	}
+	for _, s := range extra {
+		reg.Add(s)
+	}
+	return reg
+}
+
+func lim(n int) int {
+	if n <= 0 {
+		return 50
+	}
+	return n
 }
 
 // ---------- sessions helper ----------

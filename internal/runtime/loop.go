@@ -9,6 +9,7 @@ import (
 
 	"github.com/ianclemence/scout/internal/agent"
 	"github.com/ianclemence/scout/internal/llm"
+	"github.com/ianclemence/scout/internal/skills"
 )
 
 // Events emitted by the agent loop (adapted from Pi's event-sourced loop:
@@ -36,6 +37,7 @@ Rules: one tool call per turn. After the tool result arrives, continue reasoning
 
 // RunAgent executes the ReAct loop. Streaming tokens go through emit.
 // think is the normalized reasoning level (off/low/medium/high/max/"").
+// Relevant skills are selected from the user request and injected;
 // ctx cancellation interrupts the loop (Ctrl-C).
 func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Message, think string, emit Emitter) (string, error) {
 	if eng == nil || eng.LLM == nil {
@@ -43,6 +45,24 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 	}
 	emit(Event{Type: "agent_start"})
 	msgs := append([]llm.Message{}, history...)
+	// Skill selection: last user message determines relevant workflows.
+	// Only selected skill bodies enter context (never the whole library).
+	skillBlock := ""
+	if reg, err := skills.Load(); err == nil {
+		var lastUser string
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role == "user" {
+				lastUser = msgs[i].Content
+				break
+			}
+		}
+		if sel := reg.Select(lastUser, 3); len(sel) > 0 {
+			skillBlock = "\n\n" + skills.ContextBlock(sel)
+			for _, s := range sel {
+				emit(Event{Type: "skill", Name: s.Name})
+			}
+		}
+	}
 	var lastText string
 	for turn := 0; turn < MaxTurns; turn++ {
 		if err := ctx.Err(); err != nil {
@@ -52,7 +72,7 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		emit(Event{Type: "turn_start"})
 		var sb strings.Builder
 		err := eng.LLM.Stream(ctx, llm.Request{
-			System:   agent.SystemPrompt + "\n\nAvailable tools:\n" + c.ToolCatalog() + reactFormat,
+			System:   agent.SystemPrompt + skillBlock + "\n\nAvailable tools:\n" + c.ToolCatalog() + reactFormat,
 			Messages: msgs, Temperature: 0.3, MaxTokens: 1500, Thinking: think,
 		}, func(tok string) error {
 			sb.WriteString(tok)
@@ -84,7 +104,7 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		}
 		emit(Event{Type: "tool_start", Name: name, Args: summarizeArgs(args)})
 		start := time.Now()
-		result, terr := tool.Handler(ctx, args)
+		result, terr := c.Execute(ctx, tool, args)
 		if terr != nil {
 			emit(Event{Type: "tool_end", Name: name, Err: terr})
 			msgs = append(msgs,

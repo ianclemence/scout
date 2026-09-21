@@ -21,6 +21,7 @@ import (
 	"github.com/ianclemence/scout/internal/profile"
 	"github.com/ianclemence/scout/internal/runtime"
 	"github.com/ianclemence/scout/internal/secret"
+	"github.com/ianclemence/scout/internal/skills"
 	"github.com/ianclemence/scout/internal/store"
 	"github.com/ianclemence/scout/internal/tui"
 	"github.com/ianclemence/scout/internal/upwork"
@@ -65,6 +66,10 @@ func main() {
 		err = withCore(func(c *runtime.Core) error { return integrationsCmd(c, rest) })
 	case "sessions":
 		err = withCore(func(c *runtime.Core) error { return sessionsCmd(c, rest) })
+	case "skills":
+		err = withCore(func(c *runtime.Core) error { return skillsCmd(c, rest) })
+	case "tools":
+		err = withCore(func(c *runtime.Core) error { return toolsCmd(c) })
 	case "resume":
 		must(runInteractive(firstArg(rest)))
 		return
@@ -116,6 +121,8 @@ func usage() {
   scout login <provider>       store API key (masked prompt)
   scout integrations [list|add|test]
   scout sessions [list]        persistent sessions
+  scout skills [query]         agent skill registry
+  scout tools                  tool registry with permission classes
   scout run discovery          planned discovery run (drafts only)
   scout config                 effective config (secrets redacted)
   scout doctor                 diagnostics for Raspberry Pi troubleshooting
@@ -618,6 +625,31 @@ func sessionsCmd(c *runtime.Core, args []string) error {
 	}
 	for _, s := range list {
 		fmt.Printf("%s\t%s\t%s/%s\t%s\n", s.ID, s.Name, s.Provider, s.Model, s.UpdatedAt.Format(time.RFC3339))
+	}
+	return nil
+}
+
+func skillsCmd(c *runtime.Core, args []string) error {
+	_ = c
+	reg, err := skills.Load()
+	if err != nil {
+		return err
+	}
+	if len(args) > 0 {
+		for _, s := range reg.Select(strings.Join(args, " "), 5) {
+			fmt.Printf("%s\n", s.Name)
+		}
+		return nil
+	}
+	for _, s := range reg.List() {
+		fmt.Printf("%-28s %s\n", s.Name, strings.Join(s.Triggers, ", "))
+	}
+	return nil
+}
+
+func toolsCmd(c *runtime.Core) error {
+	for _, t := range c.Tools() {
+		fmt.Printf("%-26s %-14s %s\n", t.Name, t.Permission, t.Description)
 	}
 	return nil
 }

@@ -110,4 +110,21 @@ ALTER TABLE sessions ADD COLUMN thinking TEXT DEFAULT '';
 ALTER TABLE sources ADD COLUMN command TEXT DEFAULT '';
 ALTER TABLE sources ADD COLUMN env TEXT DEFAULT '';
 `},
+	{5, `
+ALTER TABLE opportunities ADD COLUMN company TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN employment_type TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN engagement_type TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN location TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN remote_status TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN technologies TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN requirements TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN currency TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN deadline TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN provenance TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN live_status TEXT DEFAULT '';
+ALTER TABLE opportunities ADD COLUMN source_url TEXT DEFAULT '';
+CREATE TABLE IF NOT EXISTS research_cache (key TEXT PRIMARY KEY, kind TEXT, data TEXT, sources TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS tool_audit (id TEXT PRIMARY KEY, created_at TEXT, tool TEXT, source TEXT, opportunity_id TEXT, permission TEXT, approved_action_id TEXT, success INTEGER, summary TEXT);
+CREATE TABLE IF NOT EXISTS learned_observations (id TEXT PRIMARY KEY, pattern TEXT, signal TEXT, created_at TEXT);
+`},
 }

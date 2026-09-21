@@ -11,6 +11,7 @@ import (
 	"github.com/ianclemence/scout/internal/domain"
 	"github.com/ianclemence/scout/internal/profile"
 	"github.com/ianclemence/scout/internal/runtime"
+	"github.com/ianclemence/scout/internal/skills"
 )
 
 // Command is a slash command with Scout-specific utility.
@@ -47,6 +48,8 @@ func Registry() []*Command {
 		{Name: "login", Description: "Store a provider API key (masked): /login <openai|anthropic|deepseek>", ArgHint: "<provider>", Handler: cmdLogin},
 		{Name: "logout", Description: "Remove a stored provider key: /logout <provider>", ArgHint: "<provider>", Handler: cmdLogout},
 		{Name: "sources", Description: "Work sources and capabilities", Handler: cmdSources},
+		{Name: "skills", Description: "List agent skills (workflows)", Handler: cmdSkills},
+		{Name: "tools", Description: "List agent tools and permission classes", Handler: cmdTools},
 		{Name: "opportunities", Description: "List opportunities: /opportunities [query] [--status s]", ArgHint: "[query]", Handler: cmdOpps},
 		{Name: "opportunity", Description: "Show detail + evaluation: /opportunity <id>", ArgHint: "<id>", Handler: cmdOpp},
 		{Name: "discover", Description: "Discovery summary over stored opportunities", Handler: cmdDiscover},
@@ -392,6 +395,30 @@ func cmdSources(ctx *SessionCtx, args string) error {
 	return nil
 }
 
+func cmdSkills(ctx *SessionCtx, args string) error {
+	reg, err := skills.Load()
+	if err != nil {
+		return err
+	}
+	if q := strings.TrimSpace(args); q != "" {
+		for _, s := range reg.Select(q, 5) {
+			ctx.Printf("  %-28s %s\n", s.Name, firstLine(s.Body))
+		}
+		return nil
+	}
+	for _, s := range reg.List() {
+		ctx.Printf("  %-28s triggers: %s\n", s.Name, strings.Join(s.Triggers, ", "))
+	}
+	return nil
+}
+
+func cmdTools(ctx *SessionCtx, args string) error {
+	for _, t := range ctx.Core.Tools() {
+		ctx.Printf("  %-26s %-14s %s\n", t.Name, t.Permission, t.Description)
+	}
+	return nil
+}
+
 func cmdProviders(ctx *SessionCtx, args string) error {
 	ctx.Printf("Provider   Configured  Models  Roles\n")
 	for _, p := range ctx.Core.ProviderStatus(ctxBg()) {
@@ -435,6 +462,13 @@ func cmdDoctor(ctx *SessionCtx, args string) error {
 func cmdQuit(ctx *SessionCtx, args string) error { return errQuit }
 
 // helpers shared with session.go
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
 func firstField(s string) string {
 	f := strings.Fields(s)
 	if len(f) == 0 {
