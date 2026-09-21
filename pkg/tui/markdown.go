@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -23,7 +24,13 @@ func RenderMarkdownWidth(s string, width int) string {
 		ts := strings.TrimSpace(line)
 		if strings.HasPrefix(ts, "```") {
 			inFence = !inFence
-			b.WriteString(styleFooter.Render("```") + "\n")
+			// The fence markers are syntax, not content: conceal them, keeping a
+			// single blank line so the code block still reads as distinct from
+			// surrounding prose. Do not stack blanks if one is already present.
+			out := b.String()
+			if !strings.HasSuffix(out, "\n\n") && out != "" {
+				b.WriteString("\n")
+			}
 			i++
 			continue
 		}
@@ -41,7 +48,7 @@ func RenderMarkdownWidth(s string, width int) string {
 				block = append(block, lines[j])
 				j++
 			}
-			for _, rl := range renderTable(block) {
+			for _, rl := range renderTable(block, width) {
 				b.WriteString(rl + "\n")
 			}
 			i = j
@@ -72,7 +79,29 @@ func RenderMarkdownWidth(s string, width int) string {
 		}
 		i++
 	}
-	return strings.TrimRight(b.String(), "\n")
+	// Collapse any stacked blank lines the block elements introduced, so
+	// concealing fences never leaves a double gap.
+	return collapseBlankRuns(strings.TrimRight(b.String(), "\n"))
+}
+
+// collapseBlankRuns reduces any run of two or more consecutive blank lines to a
+// single blank line, preserving paragraph separation without double gaps.
+func collapseBlankRuns(s string) string {
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	blank := 0
+	for _, ln := range lines {
+		if strings.TrimSpace(ln) == "" {
+			blank++
+			if blank > 1 {
+				continue
+			}
+		} else {
+			blank = 0
+		}
+		out = append(out, ln)
+	}
+	return strings.Join(out, "\n")
 }
 
 // RenderMarkdown renders assistant text wrapping at a sane default width.
@@ -218,75 +247,275 @@ func renderLinks(s string) string {
 }
 
 // ---- tables ----
+// A markdown table renders as a box-drawn grid, matching the opencode CLI and
+// Ghost: `┌─┬─┐` / `├─┼─┤` / `└─┴─┘`, a bold header row, a separator between
+// every row, dim borders, and inline styling inside cells. Columns size to
+// their natural width and shrink to fit the available space, wrapping long
+// cells; if even a single unbroken word cannot fit, the raw markdown is
+// returned rather than a broken grid.
 
+// tableMaxUnbrokenWord caps how wide a single unbroken word may force a
+// column, so one long URL or identifier cannot starve the rest of the grid.
+const tableMaxUnbrokenWord = 30
+
+// mdLinkRe matches an inline link, capturing its label, so table cells can be
+// measured and painted on their visible text rather than their markdown.
+var mdLinkRe = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+
+// isTableRow reports whether a line is a pipe-delimited table row. A single
+// pipe is enough (a two-column table without outer pipes).
 func isTableRow(s string) bool {
-	return strings.HasPrefix(s, "|") && strings.HasSuffix(s, "|") && strings.Count(s, "|") >= 3
+	return strings.Contains(s, "|")
 }
 
+// isTableDelimiter reports whether a line is a markdown table delimiter
+// (e.g. `| --- | :--: |`), allowing alignment colons.
 func isTableDelimiter(s string) bool {
 	if !isTableRow(s) {
 		return false
 	}
-	for _, c := range strings.Trim(s, "|") {
-		if c != '-' && c != ':' && c != ' ' && c != '|' {
+	cells := splitTableRow(s)
+	if len(cells) < 2 {
+		return false
+	}
+	for _, c := range cells {
+		c = strings.TrimSpace(c)
+		if c == "" {
+			return false
+		}
+		for _, r := range c {
+			if r != '-' && r != ':' {
+				return false
+			}
+		}
+		if !strings.Contains(c, "-") {
 			return false
 		}
 	}
-	return strings.Contains(s, "-")
+	return true
 }
 
+// splitTableRow splits a pipe row into trimmed cells. The leading and trailing
+// pipes are optional and dropped.
 func splitTableRow(s string) []string {
-	parts := strings.Split(strings.Trim(s, "|"), "|")
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "|")
+	s = strings.TrimSuffix(s, "|")
+	parts := strings.Split(s, "|")
 	for i := range parts {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 	return parts
 }
 
-func renderTable(block []string) []string {
+// renderTable renders a parsed markdown table into box-drawn lines at the
+// given content width.
+func renderTable(block []string, width int) []string {
 	if len(block) < 2 {
-		return block
+		return wrap(strings.Join(block, "\n"), width)
 	}
 	header := splitTableRow(block[0])
+	numCols := len(header)
+	if numCols == 0 {
+		return wrap(strings.Join(block, "\n"), width)
+	}
 	var rows [][]string
 	for _, ln := range block[2:] {
-		rows = append(rows, splitTableRow(ln))
-	}
-	widths := make([]int, len(header))
-	for i, h := range header {
-		if len(h) > widths[i] {
-			widths[i] = len(h)
+		if strings.TrimSpace(ln) == "" {
+			continue
 		}
+		row := splitTableRow(ln)
+		// Normalize to the header's column count.
+		for len(row) < numCols {
+			row = append(row, "")
+		}
+		if len(row) > numCols {
+			row = row[:numCols]
+		}
+		rows = append(rows, row)
 	}
-	for _, r := range rows {
-		for i := range header {
-			if i < len(r) && len(r[i]) > widths[i] {
-				widths[i] = len(r[i])
+
+	// Border overhead: "│ " + (n-1)*" │ " + " │" = 3n + 1.
+	availableForCells := width - (3*numCols + 1)
+	if availableForCells < numCols {
+		return wrap(strings.Join(block, "\n"), width)
+	}
+
+	// Natural (unwrapped) and minimum (longest word) column widths.
+	natural := make([]int, numCols)
+	minWord := make([]int, numCols)
+	measure := func(cells []string) {
+		for i, c := range cells {
+			plain := stripInline(c)
+			if w := lipgloss.Width(plain); w > natural[i] {
+				natural[i] = w
+			}
+			if w := longestWordWidth(plain, tableMaxUnbrokenWord); w > minWord[i] {
+				minWord[i] = w
 			}
 		}
 	}
-	pad := func(s string, w int) string { return s + strings.Repeat(" ", w-len(s)) }
+	measure(header)
+	for _, r := range rows {
+		measure(r)
+	}
+	for i := range minWord {
+		if minWord[i] < 1 {
+			minWord[i] = 1
+		}
+	}
+
+	widths := fitColumns(natural, minWord, availableForCells)
+	// A word wider than its column would burst the grid: show raw markdown.
+	for i, w := range widths {
+		if minWord[i] > w {
+			return wrap(strings.Join(block, "\n"), width)
+		}
+	}
+
 	var out []string
-	hc := make([]string, len(header))
-	for i, h := range header {
-		hc[i] = styleMDHead.Render(pad(h, widths[i]))
-	}
-	out = append(out, "│ "+strings.Join(hc, " │ ")+" │")
-	sep := make([]string, len(header))
-	for i := range header {
-		sep[i] = strings.Repeat("─", widths[i])
-	}
-	out = append(out, styleFooter.Render("├─"+strings.Join(sep, "─┼─")+"─┤"))
-	for _, r := range rows {
-		cc := make([]string, len(header))
-		for i := range header {
-			v := ""
-			if i < len(r) {
-				v = r[i]
+	borderLine := func(left, mid, right string) string {
+		var sb strings.Builder
+		sb.WriteString(left)
+		for i, w := range widths {
+			if i > 0 {
+				sb.WriteString(mid)
 			}
-			cc[i] = pad(v, widths[i])
+			sb.WriteString(strings.Repeat("─", w))
 		}
-		out = append(out, "│ "+strings.Join(cc, " │ ")+" │")
+		sb.WriteString(right)
+		return styleMDTableBorder.Render(sb.String())
+	}
+
+	out = append(out, borderLine("┌─", "─┬─", "─┐"))
+	out = append(out, renderTableRowPadded(header, widths, styleMDTableHead)...)
+	out = append(out, borderLine("├─", "─┼─", "─┤"))
+	for ri, row := range rows {
+		out = append(out, renderTableRowPadded(row, widths, styleMDTableRow)...)
+		if ri < len(rows)-1 {
+			out = append(out, borderLine("├─", "─┼─", "─┤"))
+		}
+	}
+	out = append(out, borderLine("└─", "─┴─", "─┘"))
+	return out
+}
+
+// fitColumns sizes columns to fit availableForCells: natural widths when they
+// fit, otherwise each column keeps at least its longest word and the remaining
+// space is distributed proportionally (the opencode/Ghost algorithm).
+func fitColumns(natural, minWord []int, availableForCells int) []int {
+	n := len(natural)
+	totalNatural, minCells := 0, 0
+	for i := range natural {
+		totalNatural += natural[i]
+		minCells += minWord[i]
+	}
+	if totalNatural <= availableForCells {
+		out := make([]int, n)
+		copy(out, natural)
+		return out
+	}
+	base := make([]int, n)
+	if minCells <= availableForCells {
+		copy(base, minWord)
+	} else {
+		for i := range base {
+			base[i] = 1
+		}
+		extra := availableForCells - n
+		if extra > 0 {
+			totalWeight := 0
+			for _, w := range minWord {
+				if w-1 > 0 {
+					totalWeight += w - 1
+				}
+			}
+			for i, w := range minWord {
+				if totalWeight > 0 && w-1 > 0 {
+					base[i] += (w - 1) * extra / totalWeight
+				}
+			}
+		}
+	}
+	// Grow toward natural widths with the leftover space.
+	allocated := 0
+	for _, w := range base {
+		allocated += w
+	}
+	remaining := availableForCells - allocated
+	for remaining > 0 {
+		grew := false
+		for i := 0; i < n && remaining > 0; i++ {
+			if base[i] < natural[i] {
+				base[i]++
+				remaining--
+				grew = true
+			}
+		}
+		if !grew {
+			break
+		}
+	}
+	return base
+}
+
+// renderTableRowPadded wraps each cell to its column width, pads it, and joins
+// the cells with the box's vertical separators. Header cells take the header
+// style; body cells take the row style.
+func renderTableRowPadded(cells []string, widths []int, style lipgloss.Style) []string {
+	wrapped := make([][]string, len(cells))
+	height := 1
+	for i := range cells {
+		wrapped[i] = wrap(stripInline(cells[i]), maxInt(1, widths[i]))
+		if len(wrapped[i]) > height {
+			height = len(wrapped[i])
+		}
+	}
+	var out []string
+	for line := 0; line < height; line++ {
+		var sb strings.Builder
+		sb.WriteString(styleMDTableBorder.Render("│"))
+		for i := range cells {
+			piece := ""
+			if line < len(wrapped[i]) {
+				piece = wrapped[i][line]
+			}
+			pad := widths[i] - lipgloss.Width(piece)
+			if pad < 0 {
+				pad = 0
+			}
+			sb.WriteString(" ")
+			sb.WriteString(style.Render(piece + strings.Repeat(" ", pad)))
+			sb.WriteString(" ")
+			sb.WriteString(styleMDTableBorder.Render("│"))
+		}
+		out = append(out, sb.String())
 	}
 	return out
+}
+
+// stripInline removes markdown inline markers so widths are measured on the
+// visible text. Cells render plainly; the grid supplies the structure.
+func stripInline(s string) string {
+	s = mdLinkRe.ReplaceAllString(s, "$1")
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "~~", "")
+	s = strings.Trim(s, "*_")
+	return s
+}
+
+// longestWordWidth is the widest single word in s, capped at max.
+func longestWordWidth(s string, max int) int {
+	best := 0
+	for _, word := range strings.Fields(s) {
+		w := lipgloss.Width(word)
+		if w > best {
+			best = w
+		}
+	}
+	if best > max {
+		best = max
+	}
+	return best
 }

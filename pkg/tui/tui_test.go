@@ -344,12 +344,17 @@ func TestStreamingPreviewHasNoMarker(t *testing.T) {
 	}
 }
 
-// TestIdleViewHasNoLeadingBlank ensures the idle dock does not reserve an empty
-// preview line, keeping spacing tight.
-func TestIdleViewHasNoLeadingBlank(t *testing.T) {
+// TestIdleDockIsStable ensures the preview area is a fixed anchor: the dock has
+// the same height whether idle or working (before any tokens), so the composer
+// and footer never jump at the start of a turn. Committed output is not
+// affected — this is only the live dock above the composer.
+func TestIdleDockIsStable(t *testing.T) {
 	m := testModel()
 	m.width, m.height, m.ready = 80, 24, true
-	if strings.HasPrefix(m.View(), "\n") {
-		t.Fatalf("idle view must not start with a blank line:\n%q", m.View())
+	idleLines := len(strings.Split(m.View(), "\n"))
+	m.working = true
+	workingLines := len(strings.Split(m.View(), "\n"))
+	if idleLines != workingLines {
+		t.Fatalf("dock height changed between idle (%d) and working (%d):\n%s", idleLines, workingLines, m.View())
 	}
 }

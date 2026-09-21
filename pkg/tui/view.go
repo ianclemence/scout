@@ -27,12 +27,11 @@ func (m *model) View() string {
 		return "starting Scout…"
 	}
 	var b strings.Builder
-	// The live assistant block is present only while a turn is producing
-	// text, so the idle dock stays tight.
-	if p := m.dockPreview(); p != "" {
-		b.WriteString(p)
-		b.WriteString("\n")
-	}
+	// The preview area is ALWAYS present and always dockPreviewRows tall,
+	// whether or not a turn is running — a stable anchor for the dock so the
+	// composer and footer never move when a turn starts or commits.
+	b.WriteString(m.dockPreview())
+	b.WriteString("\n")
 	if m.mcpLogin != nil {
 		b.WriteString(m.mcpLogin.view(m.width))
 	} else if m.login != nil {
@@ -59,37 +58,48 @@ func (m *model) View() string {
 	return b.String()
 }
 
-// dockPreview renders the live assistant block above the composer while a turn
-// runs: the prose of the turn in flight, wrapped and markdown-rendered like the
-// committed answer, bounded to a few lines so it never pushes the composer or
-// footer around. It shows the tail of the block (the newest lines) because that
-// is where the reader's eye is while text streams. Blank when idle.
+// dockPreviewRows is the height of the live preview area when no reply is
+// streaming: one blank row, ALWAYS rendered, so the composer and footer never
+// move at the moment a turn starts or commits.
+const dockPreviewRows = 1
+
+// dockPreviewMaxRows caps how tall the preview grows while a reply streams.
+// The preview starts at the anchor height and grows to this cap so the reader
+// can watch a few lines form; it collapses back to the anchor the instant the
+// turn commits. Growth happens only during streaming — never at the idle→working
+// or working→committed boundary — so the dock stays a stable anchor.
+const dockPreviewMaxRows = 6
+
+// dockPreview is the live area above the composer. It is always at least
+// dockPreviewRows tall (blank when idle) and grows up to dockPreviewMaxRows
+// while a reply streams, showing the newest lines. It renders markdown like the
+// committed answer so what you read while it forms matches what lands in the
+// transcript.
 func (m *model) dockPreview() string {
-	if !m.working {
-		return ""
-	}
-	prose := strings.TrimSpace(m.stream.String())
-	if prose == "" {
-		return ""
-	}
 	w := m.width
-	if w < 20 {
-		w = 20
+	if w < 10 {
+		w = 10
 	}
-	// Render the same way the committed answer is rendered, then keep only the
-	// last liveBlockLines so the dock height is constant as text grows.
-	body := RenderMarkdownWidth(prose, w-1)
-	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
-	const liveBlockLines = 4
-	if len(lines) > liveBlockLines {
-		lines = lines[len(lines)-liveBlockLines:]
-	}
-	for i, ln := range lines {
-		if ln != "" {
-			lines[i] = " " + ln
+	var rows []string
+	if m.working {
+		if prose := strings.TrimSpace(m.stream.String()); prose != "" {
+			body := RenderMarkdownWidth(prose, w-1)
+			lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+			if len(lines) > dockPreviewMaxRows {
+				lines = lines[len(lines)-dockPreviewMaxRows:]
+			}
+			for _, ln := range lines {
+				if ln != "" {
+					ln = " " + ln
+				}
+				rows = append(rows, ln)
+			}
 		}
 	}
-	return strings.Join(lines, "\n")
+	for len(rows) < dockPreviewRows {
+		rows = append(rows, "")
+	}
+	return strings.Join(rows, "\n")
 }
 
 // promptBox is the rule-framed composer: top rule carries live status.

@@ -81,10 +81,21 @@ transcript readable and honest:
   Per-turn preambles are process narration: they are shown live in the dock and
   then discarded, never committed as if they were findings. The composer's
   top rule already names the activity.
-- **The live block is bounded.** The dock shows at most a few wrapped lines of
-  the current segment, so a long stream never pushes the composer or footer.
-  Renders are coalesced on a frame tick, so a token burst cannot force one
-  repaint per token.
+- **The live block is bounded and stable.** The preview area above the
+  composer is always present: one blank anchor row when idle, growing to a
+  capped number of lines while a reply streams (so the answer is readable as
+  it forms), then collapsing back to the anchor the instant the turn commits.
+  The dock therefore never changes height at the idle→working or
+  working→committed boundary — only during streaming. Renders are coalesced on
+  a frame tick, so a token burst cannot force one repaint per token.
+- **Tables are box-drawn grids.** A markdown table renders like the opencode
+  CLI: `┌─┬─┐` / `├─┼─┤` / `└─┴─┘`, a bold header, a separator between rows,
+  dim borders. Columns size to natural width and shrink to fit the terminal,
+  wrapping long cells; a table that cannot form a stable grid falls back to
+  raw markdown rather than overflowing. Widths use display width, not byte
+  length, so wide characters (em-dashes, CJK) stay aligned.
+- **Markdown syntax is concealed.** Fence markers, `**`, and backticks never
+  reach the transcript; h1 is underlined to keep heading hierarchy.
 
 ---
 

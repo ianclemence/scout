@@ -53,7 +53,7 @@ func TestLiveBlockIsBounded(t *testing.T) {
 		m.handleEvent(runtime.Event{Type: "token", Text: "word "})
 	}
 	lines := strings.Split(m.dockPreview(), "\n")
-	if len(lines) > 4 {
+	if len(lines) > dockPreviewMaxRows {
 		t.Fatalf("live block exceeded cap: %d lines\n%s", len(lines), m.dockPreview())
 	}
 }

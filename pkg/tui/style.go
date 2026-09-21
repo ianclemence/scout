@@ -100,6 +100,10 @@ var (
 	styleMDUncheck   = lipgloss.NewStyle().Foreground(cMuted)
 	styleMDLinkText  = lipgloss.NewStyle().Foreground(cBlue).Underline(true)
 	styleMDTableHead = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	// Table grid: dim box borders, bold header, plain body cells — the
+	// opencode/Ghost box-drawn table language.
+	styleMDTableBorder = lipgloss.NewStyle().Foreground(cFaint)
+	styleMDTableRow    = lipgloss.NewStyle().Foreground(cInk)
 
 	// Legacy aliases kept for compat within package.
 	styleUserLabel   = styleUserName
