@@ -240,33 +240,6 @@ func (m *model) welcomeCard() string {
 	return center(art) + "\n" + center(tag) + "\n\n" + center(cmds)
 }
 
-func dayLabel(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	y, mo, d := t.Date()
-	ny, nmo, nd := time.Now().Date()
-	if y == ny && mo == nmo && d == nd {
-		return "Today"
-	}
-	yy, ymo, yd := time.Now().AddDate(0, 0, -1).Date()
-	if y == yy && mo == ymo && d == yd {
-		return "Yesterday"
-	}
-	return t.Format("2 January 2006")
-}
-
-func (m *model) renderDayDivider(label string) string {
-	w := m.width
-	core := " " + label + " "
-	fill := w - lipgloss.Width(core)
-	if fill < 0 {
-		return styleDayDivider.Render(cellTruncate(label, w))
-	}
-	left := fill / 2
-	return styleDayDivider.Render(strings.Repeat("─", left) + core + strings.Repeat("─", fill-left))
-}
-
 // ---------- footer ----------
 
 func (m *model) footerStats() string {

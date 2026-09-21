@@ -94,7 +94,6 @@ type model struct {
 	// picker is the general searchable list used by /thinking, /sessions,
 	// /approvals, /skills, /tools. It renders in the dock like the others.
 	picker   *listPickerUI
-	lastDay  string
 	welcomed bool
 	quitting bool
 }
@@ -532,34 +531,20 @@ func (m *model) println(e entry) *model {
 	return m
 }
 
-// flushCmds prints committed entries (with day dividers) to scrollback.
+// flushCmds prints committed entries to scrollback as one block, separated
+// by a blank line — the same spacing the reference terminal UI uses. Entries
+// are grouped so the transcript reads as discrete messages, not a wall of
+// text, and no date divider is emitted.
 func (m *model) flushCmds() tea.Cmd {
-	var cmds []tea.Cmd
+	if len(m.entries) == 0 {
+		return nil
+	}
+	var blocks []string
 	for _, e := range m.entries {
-		for _, d := range m.dividerFor(e) {
-			d := d
-			cmds = append(cmds, tea.Println(d))
-		}
-		e := e
-		cmds = append(cmds, tea.Println(m.renderEntry(e)))
+		blocks = append(blocks, m.renderEntry(e))
 	}
 	m.entries = nil
-	if len(cmds) == 0 {
-		return nil
-	}
-	return tea.Batch(cmds...)
-}
-
-func (m *model) dividerFor(e entry) []string {
-	if e.at.IsZero() {
-		return nil
-	}
-	d := dayLabel(e.at)
-	if d == "" || d == m.lastDay {
-		return nil
-	}
-	m.lastDay = d
-	return []string{m.renderDayDivider(d)}
+	return tea.Println(strings.Join(blocks, "\n\n"))
 }
 
 // startTurn launches the agent goroutine.

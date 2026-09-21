@@ -79,7 +79,6 @@ var (
 	styleWelcomeTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#efe9dc")).Bold(true)
 	styleScoutArt     = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 	styleWelcomeCmds  = lipgloss.NewStyle().Foreground(cMuted)
-	styleDayDivider   = lipgloss.NewStyle().Foreground(cFaint)
 
 	// Markdown roles, mapped to Scout brand tokens (accent = identity,
 	// gold = headings/emphasis, green = code, muted = quotes/meta). This
