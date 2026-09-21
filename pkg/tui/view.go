@@ -10,6 +10,7 @@ import (
 
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/isession"
+	"github.com/ianclemence/scout/pkg/runtime"
 )
 
 // Spinner cube, rotating while a turn runs.
@@ -57,7 +58,7 @@ func (m *model) View() string {
 // dockPreview is one reserved line above the composer: the tail of the
 // streaming reply with a caret while a turn runs, blank when idle. Tool
 // internals are never shown here — the live activity is named in the
-// composer's top rule ("Thinking", "Searching work…") instead.
+// composer's top rule ("Working", "Searching work…") instead.
 func (m *model) dockPreview() string {
 	w := m.width
 	if w < 10 {
@@ -113,13 +114,13 @@ func (m *model) composerTopRule() string {
 
 // activityWord is the live status in the composer's top rule: what Scout is
 // doing right now in product language — the active tool ("Searching work…",
-// "Drafting a proposal…") when one is running, otherwise "Thinking" — then
-// how long. The tool count is deliberately omitted, matching the reference
-// terminal UI where that detail lives elsewhere.
+// "Drafting a proposal…") when one is running, otherwise "Working" — then
+// how long. The tool count is deliberately omitted; that detail lives in the
+// footer stats line.
 func (m *model) activityWord() string {
 	word := isession.ActivityLabel(m.toolName)
 	if word == "" {
-		word = "Thinking"
+		word = "Working"
 	}
 	s := fmt.Sprintf("%s %s", spinnerFrames[m.spin%len(spinnerFrames)], word)
 	if d := time.Since(m.turnFrom); d > 0 {
@@ -228,7 +229,48 @@ func (m *model) welcomeCard() string {
 	art := styleScoutArt.Render("▓▒░  👷  S C O U T  ░▒▓")
 	tag := styleWelcomeTitle.Render(wrapFirst("Find work worth doing.", minInt(w-2, 64)))
 	cmds := styleWelcomeCmds.Render("  /help           commands & keys\n  /login          connect a provider\n  /model          select conversation model (ctrl+p cycles)\n  /scoped-models  pick models to cycle\n  /profile        who Scout thinks you are")
-	return center(art) + "\n" + center(tag) + "\n\n" + center(cmds)
+	out := center(art) + "\n" + center(tag) + "\n\n" + center(cmds)
+	// Name configured work sources so the startup itself answers "what MCP is
+	// configured"; the /sources picker manages them.
+	if m.st != nil && m.st.Core != nil {
+		if conns, err := m.st.Core.Connections(); err == nil && len(conns) > 0 {
+			out += "\n\n" + center(styleWelcomeSources.Render(connectorsSummary(conns)))
+		}
+	}
+	return out
+}
+
+// connectorsSummary renders a one-line work-source digest for the welcome
+// card: name, kind, and auth state, joined for a compact footer.
+func connectorsSummary(conns []runtime.Connection) string {
+	var parts []string
+	for _, conn := range conns {
+		if !conn.Enabled {
+			continue
+		}
+		state := conn.Auth
+		switch state {
+		case "authenticated":
+			state = "ready"
+		case "open":
+			state = "ready"
+		case "token_stored":
+			state = "token stored"
+		case "unauthenticated", "token_rejected":
+			state = "needs auth"
+		default:
+			state = "configured"
+		}
+		target := conn.Endpoint
+		if conn.Kind == "mcp-stdio" {
+			target = conn.Command
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s on %s)", conn.Name, state, target))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "· " + strings.Join(parts, "  ·  ")
 }
 
 // ---------- footer ----------
@@ -259,10 +301,40 @@ func (m *model) sessionDigest() string {
 	if m.working {
 		return fmt.Sprintf("working · %d tool(s)", m.tools)
 	}
-	if m.turns == 0 {
-		return "ready"
+	digest := "ready"
+	if m.turns > 0 {
+		digest = fmt.Sprintf("%d turn(s)", m.turns)
 	}
-	return fmt.Sprintf("%d turn(s)", m.turns)
+	if m.connHint != "" {
+		digest += " · " + m.connHint
+	}
+	return digest
+}
+
+// refreshConnHint recomputes the cached source-auth hint. It is cheap
+// (one list query) and called only when sources change or at startup.
+func (m *model) refreshConnHint() {
+	m.connHint = ""
+	if m.st == nil || m.st.Core == nil {
+		return
+	}
+	conns, err := m.st.Core.Connections()
+	if err != nil {
+		return
+	}
+	var needs []string
+	for _, c := range conns {
+		if !c.Enabled {
+			continue
+		}
+		switch c.Auth {
+		case "unauthenticated", "token_rejected":
+			needs = append(needs, c.Name)
+		}
+	}
+	if len(needs) > 0 {
+		m.connHint = strings.Join(needs, ", ") + " needs auth · /sources"
+	}
 }
 
 func (m *model) modelInfo() (local, prov, mod string) {
@@ -319,13 +391,17 @@ func (m *model) footerEnds(left, right string) string {
 
 // ---------- selector (palette + model picker) ----------
 
-const paletteMaxRows = 5
+const paletteMaxRows = 8
 
 func (m *model) openPalette(filter string) {
 	items := []selItem{}
-	for _, c := range commandList() {
-		if filter == "" || strings.HasPrefix(c.Name, filter) {
-			items = append(items, selItem{label: "/" + c.Name, detail: c.Description, value: "/" + c.Name})
+	for _, c := range isession.Registry() {
+		if filter == "" || strings.HasPrefix(c.Name, filter) || strings.Contains(strings.ToLower(c.Description), strings.ToLower(filter)) {
+			label := "/" + c.Name
+			if c.ArgHint != "" {
+				label += " " + c.ArgHint
+			}
+			items = append(items, selItem{label: label, detail: "[" + c.Group + "] " + c.Description, value: "/" + c.Name})
 		}
 	}
 	m.sel = &selector{title: "Commands", items: items}

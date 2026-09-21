@@ -1,106 +1,136 @@
 // Command scout — terminal-native AI work acquisition agent.
-// Bare `scout` enters the interactive session; subcommands are scriptable.
+// Subcommands are scriptable; the interactive session is the primary surface.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/ianclemence/scout/pkg/mcpclient"
 	"github.com/ianclemence/scout/pkg/runtime"
-	"github.com/ianclemence/scout/pkg/upwork"
 )
 
+// integrationsCmd is the CLI view of the shared connector surface
+// (runtime.Connections / ProbeConnection / Add* / StoreConnectionToken).
+// The /sources slash command and the agent tools call the same Core methods,
+// so the three interfaces can never disagree.
 func integrationsCmd(c *runtime.Core, args []string) error {
 	sub := "list"
 	if len(args) > 0 {
 		sub = args[0]
 	}
 	switch sub {
-	case "list":
-		srcs, err := c.ListSources()
+	case "list", "ls":
+		conns, err := c.Connections()
 		if err != nil {
 			return err
 		}
-		for _, s := range srcs {
-			fmt.Printf("%s\t%s\t%s\tenabled=%v\tcaps=%v\n", s.Name, s.Kind, s.Endpoint, s.Enabled, s.Capabilities)
+		if len(conns) == 0 {
+			fmt.Println("No work sources configured. Add one:")
+			fmt.Println("  scout integrations add Upwork https://mcp.upwork.com/mcp")
+			return nil
 		}
+		fmt.Printf("%-14s %-10s %-16s %-18s %s\n", "NAME", "KIND", "STATE", "AUTH", "CAPABILITIES")
+		for _, conn := range conns {
+			state := "off"
+			if conn.Enabled {
+				state = conn.Status
+				if state == "" {
+					state = "configured"
+				}
+			}
+			endpoint := conn.Endpoint
+			if conn.Kind == "mcp-stdio" {
+				endpoint = conn.Command
+			}
+			fmt.Printf("%-14s %-10s %-16s %-18s %s\n", conn.Name, conn.Kind, state, conn.Auth, runtime.CapabilityLabels(conn.Capabilities))
+			if endpoint != "" {
+				fmt.Printf("%-14s %s\n", "", endpoint)
+			}
+			if conn.Detail != "" && conn.Status != "configured" && conn.Status != "" {
+				fmt.Printf("%-14s %s\n", "", conn.Detail)
+			}
+		}
+		return nil
 	case "add":
 		if len(args) < 3 {
-			return fmt.Errorf("usage: scout integrations add <name> <endpoint> | scout integrations add <name> --command \"prog args...\"")
+			return fmt.Errorf("usage: scout integrations add <name> <https-url> | scout integrations add <name> --command \"prog args...\"")
 		}
-		if len(args) >= 3 && args[1] == "--command" {
-			return fmt.Errorf("usage: scout integrations add <name> --command \"prog args...\"")
-		}
+		name := args[1]
 		if args[2] == "--command" {
 			if len(args) < 4 {
 				return fmt.Errorf("usage: scout integrations add <name> --command \"prog args...\"")
 			}
-			_, err := c.DB.DB.Exec(`INSERT OR REPLACE INTO sources(id,name,kind,endpoint,command,enabled,capabilities) VALUES(?,?,?,?,?,1,'')`,
-				"src-"+strings.ToLower(strings.ReplaceAll(args[1], " ", "-")), args[1], "mcp-stdio", "", args[3])
-			fmt.Println("added stdio source", args[1])
+			if err := c.AddStdioConnection(name, strings.Join(args[3:], " ")); err != nil {
+				return err
+			}
+			fmt.Println("added stdio source", name)
+			return nil
+		}
+		if err := c.AddMCPConnection(name, args[2]); err != nil {
 			return err
 		}
-		if !strings.HasPrefix(args[2], "https://") && !strings.HasPrefix(args[2], "http://localhost") && !strings.HasPrefix(args[2], "http://127.0.0.1") {
-			return fmt.Errorf("endpoint must be https (or localhost http)")
-		}
-		_, err := c.DB.DB.Exec(`INSERT OR REPLACE INTO sources(id,name,kind,endpoint,enabled,capabilities) VALUES(?,?,?,?,1,'')`,
-			"src-"+strings.ToLower(strings.ReplaceAll(args[1], " ", "-")), args[1], "mcp", args[2])
-		fmt.Println("added", args[1])
-		return err
+		fmt.Println("added", name)
+		return nil
 	case "test":
-		name := "Upwork"
+		ref := "Upwork"
 		if len(args) > 1 {
-			name = args[1]
-		}
-		var endpoint, kind, command string
-		if err := c.DB.DB.QueryRow(`SELECT endpoint,kind,COALESCE(command,'') FROM sources WHERE name=?`, name).Scan(&endpoint, &kind, &command); err != nil {
-			return fmt.Errorf("source %q not found", name)
-		}
-		tok, _ := c.LoadSecret("mcp:" + name)
-		conn := &mcpclient.Connector{ID: name, Endpoint: endpoint, Token: tok}
-		if kind == "mcp-stdio" {
-			if command == "" {
-				return fmt.Errorf("stdio source %q has no command", name)
-			}
-			conn.Command = strings.Fields(command)
+			ref = args[1]
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		tools, err := conn.ListTools(ctx)
+		conn, err := c.ProbeConnection(ctx, ref, 20*time.Second)
 		if err != nil {
-			return fmt.Errorf("capability discovery failed: %w", err)
+			return err
 		}
-		caps := upwork.Discover(tools)
-		fmt.Printf("%s: %d tools, capabilities=%v\n", name, len(tools), caps)
-		for _, t := range tools {
-			fmt.Printf("  - %s\n", t.Name)
+		fmt.Printf("%s: status=%s auth=%s tools=%d capabilities=%s\n",
+			conn.Name, conn.Status, conn.Auth, conn.ToolCount,
+			runtime.CapabilityLabels(conn.Capabilities))
+		if conn.Detail != "" {
+			fmt.Printf("  %s\n", conn.Detail)
 		}
-		cb, _ := json.Marshal(caps)
-		_, _ = c.DB.DB.Exec(`UPDATE sources SET capabilities=? WHERE name=?`, string(cb), name)
+		return nil
+	case "remove", "rm", "delete":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: scout integrations remove <name>")
+		}
+		if err := c.RemoveConnection(args[1]); err != nil {
+			return err
+		}
+		fmt.Println("removed", args[1])
+		return nil
+	case "enable", "disable":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: scout integrations %s <name>", sub)
+		}
+		if err := c.SetConnectionEnabled(args[1], sub == "enable"); err != nil {
+			return err
+		}
+		fmt.Printf("%s %sd\n", args[1], sub)
+		return nil
 	case "token":
 		return integrationsTokenCmd(c, args[1:])
 	default:
-		return fmt.Errorf("usage: scout integrations [list|add|test|token]")
+		return fmt.Errorf("usage: scout integrations [list|add|test|token|enable|disable|remove]")
 	}
-	return nil
 }
 
 // integrationsTokenCmd stores an MCP access token (masked prompt, encrypted).
-
 func integrationsTokenCmd(c *runtime.Core, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: scout integrations token <name>")
 	}
-	fmt.Printf("Access token for %s: ", args[0])
+	conn, err := c.FindConnection(args[0])
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Access token for %s: ", conn.Name)
 	key, err := readPassword()
 	if err != nil || key == "" {
 		return fmt.Errorf("no token entered")
 	}
-	if err := c.SaveSecret("mcp:"+args[0], key); err != nil {
+	if err := c.StoreConnectionToken(args[0], key); err != nil {
 		return err
 	}
 	fmt.Println("token stored (encrypted, never displayed).")

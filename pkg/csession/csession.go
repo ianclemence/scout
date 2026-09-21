@@ -29,10 +29,13 @@ func newID(prefix string) string {
 }
 
 func Create(db *store.Store, name, provider, model string) (*Session, error) {
+	// Thinking defaults to off: Scout shows answers, not chain-of-thought,
+	// and a hybrid reasoning model must not spend a turn thinking unless the
+	// user explicitly asks for it. /thinking changes it per session.
 	s := &Session{ID: newID("sess"), Name: name, Provider: provider, Model: model,
-		CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+		Thinking: "off", CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	_, err := db.DB.Exec(`INSERT INTO sessions(id,name,provider,model,thinking,created_at,updated_at) VALUES(?,?,?,?,?,?,?)`,
-		s.ID, s.Name, s.Provider, s.Model, "", ts(s.CreatedAt), ts(s.UpdatedAt))
+		s.ID, s.Name, s.Provider, s.Model, s.Thinking, ts(s.CreatedAt), ts(s.UpdatedAt))
 	return s, err
 }
 

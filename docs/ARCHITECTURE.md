@@ -22,7 +22,8 @@ pkg/
   match/             deterministic filters, fingerprints, heuristic dimensions, risks
   agent/             core agent instructions + proposal/match LLM helpers
   runtime/           SCOUT CORE: services, typed tool registry, permissions,
-                     audit log, ReAct agent loop w/ events, skill selection
+                     audit log, ReAct agent loop w/ events, skill selection,
+                     connector surface (connections.go: list/test/add/auth)
   skills/            18 embedded SKILL.md workflows + registry/selection
   sources/           OpportunitySource interface: local, MCP, fake adapters
   isession/          slash registry + line-mode loop (non-TTY fallback);
@@ -87,6 +88,8 @@ modest hardware. These choices follow from that:
 | Tools | Typed registry + permission classes + approvals | Every capability is auditable and gated |
 | Approvals | PendingAction records + lifecycle events | Consequential actions are records, not side effects |
 | Secrets | AES-256-GCM in SQLite + env + redaction helper | No OS keychain is available on a headless device |
+| Connectors | One `runtime.Connections` surface shared by CLI, session, and agent tools | Three interfaces can never disagree about what is configured |
+| SQLite access | Single connection; never query while a row cursor is open | A nested query on one connection deadlocks silently |
 | Persistence | SQLite (events + tool_audit + cache tables) | One file, pure Go driver, no external services |
 | Testing | `go test` + fake sources + fake providers | Fast, hermetic, no network in unit tests |
 | MCP | Client (remote + stdio) and server (stdio + HTTP) | Official integrations only; other agents can call the same Core |

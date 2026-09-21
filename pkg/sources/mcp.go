@@ -61,10 +61,12 @@ func mapTools(tools []mcpclient.ToolInfo) []Capability {
 			set[CapReadListing] = true
 		case has("freelancer", "talent", "client", "company"):
 			set[CapResearch] = true
+		// Submit is matched before draft: "submit_proposal" contains
+		// "proposal" but is a submit action, and the stronger intent wins.
+		case has("submit", "apply", "send proposal"):
+			set[CapSubmit] = true
 		case has("proposal", "draft", "cover letter"):
 			set[CapDraft] = true
-		case has("submit", "apply"):
-			set[CapSubmit] = true
 		case has("message", "thread", "conversation"):
 			set[CapMessage] = true
 		case has("contract", "offer", "earning"):
@@ -84,8 +86,8 @@ func (m *MCPAdapter) findTool(want Capability) (string, bool) {
 		CapSearch:      {"search job", "find job", "job search", "search_job", "search"},
 		CapReadListing: {"job detail", "get job", "read job", "job_detail"},
 		CapResearch:    {"client", "company", "freelancer", "talent"},
-		CapDraft:       {"draft", "proposal"},
-		CapSubmit:      {"submit", "apply"},
+		CapDraft:       {"draft", "cover letter", "proposal"},
+		CapSubmit:      {"submit", "apply", "send proposal"},
 		CapMessage:     {"message", "thread"},
 		CapContracts:   {"contract", "offer"},
 	}
@@ -93,11 +95,25 @@ func (m *MCPAdapter) findTool(want Capability) (string, bool) {
 		n := strings.ToLower(t.Name + " " + t.Description)
 		for _, kw := range cands[want] {
 			if strings.Contains(n, kw) {
+				// A tool matching a stronger capability belongs to that one;
+				// never hand a submit tool to the draft path.
+				if want != CapSubmit && strings.Contains(n, "submit") && hasCapabilityKeyword(n, cands[CapSubmit]) {
+					continue
+				}
 				return t.Name, true
 			}
 		}
 	}
 	return "", false
+}
+
+func hasCapabilityKeyword(hay string, keywords []string) bool {
+	for _, k := range keywords {
+		if strings.Contains(hay, k) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *MCPAdapter) Search(ctx context.Context, f SearchFilter) ([]domain.Opportunity, error) {
@@ -162,6 +178,47 @@ func (m *MCPAdapter) Health(ctx context.Context) Health {
 		return Health{State: "unavailable", Detail: msg}
 	}
 	return Health{State: "connected", Detail: fmt.Sprintf("%d tools", len(m.tools))}
+}
+
+// Tools returns the discovered MCP tools (discovering once if needed).
+func (m *MCPAdapter) Tools(ctx context.Context) ([]mcpclient.ToolInfo, error) {
+	if len(m.tools) == 0 {
+		if err := m.Discover(ctx); err != nil {
+			return nil, err
+		}
+	}
+	return m.tools, nil
+}
+
+// SubmitApplication calls the source's discovered submit tool with the given
+// arguments. It runs only after Core has verified an approved action; the
+// adapter is the last mile, not a policy surface. A source without a submit
+// tool reports that truthfully instead of pretending success.
+func (m *MCPAdapter) SubmitApplication(ctx context.Context, args map[string]any) (string, error) {
+	if len(m.tools) == 0 {
+		if err := m.Discover(ctx); err != nil {
+			return "", err
+		}
+	}
+	name, ok := m.findTool(CapSubmit)
+	if !ok {
+		return "", fmt.Errorf("source %s does not expose application submission", m.NameValue)
+	}
+	return m.Conn.CallTool(ctx, name, args)
+}
+
+// SendMessage calls the source's discovered messaging tool.
+func (m *MCPAdapter) SendMessage(ctx context.Context, args map[string]any) (string, error) {
+	if len(m.tools) == 0 {
+		if err := m.Discover(ctx); err != nil {
+			return "", err
+		}
+	}
+	name, ok := m.findTool(CapMessage)
+	if !ok {
+		return "", fmt.Errorf("source %s does not expose messaging", m.NameValue)
+	}
+	return m.Conn.CallTool(ctx, name, args)
 }
 
 func (m *MCPAdapter) Close() error { return nil }

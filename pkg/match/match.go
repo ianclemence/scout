@@ -58,9 +58,14 @@ func HeuristicEvaluate(p *domain.ProfessionalProfile, o *domain.Opportunity) *do
 	lowDesc := strings.ToLower(o.Title + " " + o.Description + " " + strings.Join(o.Skills, " "))
 	profileTerms := append(append([]string{}, p.Skills...), p.Technologies...)
 	var matched []string
+	seen := map[string]bool{}
 	for _, s := range profileTerms {
 		s = strings.ToLower(strings.TrimSpace(s))
-		if s != "" && strings.Contains(lowDesc, s) {
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		if strings.Contains(lowDesc, s) {
 			skillHits++
 			matched = append(matched, s)
 		}

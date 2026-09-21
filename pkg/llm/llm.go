@@ -87,9 +87,8 @@ type openaiCompat struct {
 	think func(model, level string, body map[string]any)
 }
 
-// Normalized thinking levels, ordered from least to most reasoning. This set
-// matches the reference agents (off/minimal/low/medium/high/xhigh/max) so the
-// same choices behave the same way across surfaces.
+// Normalized thinking levels, ordered from least to most reasoning. One
+// vocabulary for every provider so the same choices behave the same way.
 const (
 	ThinkOff     = "off"
 	ThinkMinimal = "minimal"
@@ -167,6 +166,9 @@ func ThinkDescription(provider, level string) string {
 }
 
 // thinkOpenAI maps to reasoning_effort (gpt-5 family: minimal/low/medium/high).
+// Off (and the default) omits the field: non-reasoning models reject it, and
+// reasoning models never put chain-of-thought in content, so the parser drops
+// it regardless.
 func thinkOpenAI(model, level string, body map[string]any) {
 	switch normThink(level) {
 	case ThinkMinimal:
@@ -181,10 +183,12 @@ func thinkOpenAI(model, level string, body map[string]any) {
 }
 
 // thinkDeepSeek maps to thinking.type + reasoning_effort (per current API docs).
+// Off is sent explicitly as disabled so a hybrid reasoning model does not
+// spend the turn thinking by default.
 func thinkDeepSeek(model, level string, body map[string]any) {
 	switch normThink(level) {
-	case ThinkOff:
-		// omit: default non-thinking behavior
+	case ThinkOff, "":
+		body["thinking"] = map[string]string{"type": "disabled"}
 	case ThinkMinimal, ThinkLow, ThinkMedium:
 		body["thinking"] = map[string]string{"type": "enabled"}
 	case ThinkHigh, ThinkXHigh, ThinkMax:
@@ -194,12 +198,12 @@ func thinkDeepSeek(model, level string, body map[string]any) {
 }
 
 // thinkMoonshot maps per Kimi model family: kimi-k3 uses reasoning_effort
-// (low/high/max, always thinking); kimi-k2.x uses thinking.type.
+// (low/high/max; it always reasons), kimi-k2.x uses thinking.type.
 func thinkMoonshot(model, level string, body map[string]any) {
 	m := strings.ToLower(model)
 	if strings.HasPrefix(m, "kimi-k3") {
 		switch normThink(level) {
-		case ThinkOff, ThinkMinimal, ThinkLow:
+		case ThinkOff, "", ThinkMinimal, ThinkLow:
 			body["reasoning_effort"] = "low"
 		case ThinkMedium, ThinkHigh:
 			body["reasoning_effort"] = "high"
@@ -208,9 +212,9 @@ func thinkMoonshot(model, level string, body map[string]any) {
 		}
 		return
 	}
-	if normThink(level) == ThinkOff {
+	if lvl := normThink(level); lvl == ThinkOff || lvl == "" {
 		body["thinking"] = map[string]string{"type": "disabled"}
-	} else if normThink(level) != "" {
+	} else {
 		body["thinking"] = map[string]string{"type": "enabled"}
 	}
 }
@@ -252,9 +256,7 @@ func (p *openaiCompat) Complete(req Request) (string, error) {
 	}
 	var out struct {
 		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
+			Message map[string]any `json:"message"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
@@ -263,7 +265,12 @@ func (p *openaiCompat) Complete(req Request) (string, error) {
 	if len(out.Choices) == 0 {
 		return "", fmt.Errorf("%s: no choices", p.name)
 	}
-	return out.Choices[0].Message.Content, nil
+	// Only "content" is the answer. Reasoning fields on the message are
+	// parsed and discarded (see reasoningFields). Inline thinking tags some
+	// models embed in content are stripped so they never surface either.
+	content, _ := out.Choices[0].Message["content"].(string)
+	_ = reasoningFromMap(out.Choices[0].Message)
+	return stripReasoning(content), nil
 }
 
 // ---- Ollama native ----
@@ -296,8 +303,9 @@ func (p *ollama) Complete(req Request) (string, error) {
 	}
 	bodyMap := map[string]any{"model": model, "messages": msgs, "stream": false}
 	// Ollama native thinking switch (qwen3/gpt-oss style `think` flag).
+	// Empty defaults to off so a hybrid model never reasons by default.
 	switch normThink(req.Thinking) {
-	case ThinkOff:
+	case ThinkOff, "":
 		bodyMap["think"] = false
 	case ThinkLow, ThinkMedium, ThinkHigh, ThinkMax:
 		bodyMap["think"] = true
@@ -316,13 +324,16 @@ func (p *ollama) Complete(req Request) (string, error) {
 	}
 	var out struct {
 		Message struct {
-			Content string `json:"content"`
+			Content  string `json:"content"`
+			Thinking string `json:"thinking"`
 		} `json:"message"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		return "", err
 	}
-	return out.Message.Content, nil
+	// Ollama reports reasoning on message.thinking; it is never answer text.
+	_ = out.Message.Thinking
+	return stripReasoning(out.Message.Content), nil
 }
 
 // ---- Anthropic ----
@@ -389,15 +400,21 @@ func (p *anthropic) Complete(req Request) (string, error) {
 	}
 	var out struct {
 		Content []struct {
+			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 	}
 	if err := json.Unmarshal(b, &out); err != nil {
 		return "", err
 	}
+	// Anthropic returns separate blocks for thinking and text. Only "text"
+	// blocks are the answer; "thinking" (and redacted thinking) blocks are
+	// chain-of-thought and are discarded here.
 	var sb strings.Builder
 	for _, c := range out.Content {
-		sb.WriteString(c.Text)
+		if c.Type == "text" {
+			sb.WriteString(c.Text)
+		}
 	}
 	return sb.String(), nil
 }
@@ -431,6 +448,148 @@ func epOr(v, d string) string {
 		return v
 	}
 	return d
+}
+
+// ---- reasoning isolation ----
+//
+// Scout never surfaces a model's chain-of-thought. Providers expose reasoning
+// on dedicated fields and/or inline tags; both are parsed here and discarded,
+// so no caller (agent loop, TUI, CLI) can accidentally render it.
+
+// reasoningFields is the allowlist of message/delta fields that carry model
+// reasoning across OpenAI-compatible servers. These are never treated as
+// answer text. The names match the de-facto standard used by llama.cpp,
+// DeepSeek, Moonshot, and other OpenAI-compatible endpoints.
+var reasoningFields = []string{"reasoning_content", "reasoning", "reasoning_text"}
+
+// inlineThinkTags are the tag pairs some models emit directly inside the text
+// stream. Content between them is reasoning, not answer text.
+var inlineThinkTags = [][2]string{
+	{"<thinking>", "</thinking>"},
+	{"<think>", "</think>"},
+}
+
+// reasoningSanitizer removes inline reasoning tags from a token stream while
+// preserving ordinary text, even when a tag is split across tokens. It is the
+// single place inline chain-of-thought is removed.
+type reasoningSanitizer struct {
+	inThink bool
+	hold    string
+}
+
+// write consumes a token and returns the visible text safe to emit.
+func (s *reasoningSanitizer) write(tok string) string {
+	s.hold += tok
+	var out strings.Builder
+	for len(s.hold) > 0 {
+		if s.inThink {
+			idx, close := earliestTag(s.hold, false)
+			if idx < 0 {
+				// Retain only a possible partial closing tag; drop the rest.
+				s.hold = partialTagSuffix(s.hold, false)
+				return out.String()
+			}
+			s.hold = s.hold[idx+len(close):]
+			s.inThink = false
+			continue
+		}
+		idx, open := earliestTag(s.hold, true)
+		if idx < 0 {
+			keep := partialTagSuffix(s.hold, true)
+			out.WriteString(s.hold[:len(s.hold)-len(keep)])
+			s.hold = keep
+			return out.String()
+		}
+		out.WriteString(s.hold[:idx])
+		s.hold = s.hold[idx+len(open):]
+		s.inThink = true
+	}
+	return out.String()
+}
+
+// flush releases any buffered non-reasoning text at end of stream. A dangling
+// unclosed think tag is dropped (it was reasoning).
+func (s *reasoningSanitizer) flush() string {
+	out := ""
+	if !s.inThink && len(s.hold) > 0 {
+		// If the hold is a prefix of a thinking tag, treat it as reasoning.
+		if !isPartialTag(s.hold, true) {
+			out = s.hold
+		}
+	}
+	s.hold = ""
+	return out
+}
+
+// stripReasoning removes inline reasoning tags from a complete string.
+func stripReasoning(s string) string {
+	san := &reasoningSanitizer{}
+	return san.write(s) + san.flush()
+}
+
+// earliestTag returns the index and tag of the first opening (open=true) or
+// closing (open=false) reasoning tag in s, or -1 if none.
+func earliestTag(s string, open bool) (int, string) {
+	best := -1
+	bestTag := ""
+	for _, pair := range inlineThinkTags {
+		tag := pair[1]
+		if open {
+			tag = pair[0]
+		}
+		if i := strings.Index(s, tag); i >= 0 && (best < 0 || i < best) {
+			best, bestTag = i, tag
+		}
+	}
+	return best, bestTag
+}
+
+// partialTagSuffix returns the longest suffix of s that is a proper prefix of
+// any opening (open=true) or closing tag, so it can be held for the next token.
+func partialTagSuffix(s string, open bool) string {
+	best := ""
+	for _, pair := range inlineThinkTags {
+		tag := pair[1]
+		if open {
+			tag = pair[0]
+		}
+		max := len(tag) - 1
+		if len(s) < max {
+			max = len(s)
+		}
+		for n := max; n > 0; n-- {
+			if strings.HasSuffix(s, tag[:n]) && n > len(best) {
+				best = tag[:n]
+			}
+		}
+	}
+	return best
+}
+
+// isPartialTag reports whether s is a proper prefix of an opening tag.
+func isPartialTag(s string, open bool) bool {
+	for _, pair := range inlineThinkTags {
+		tag := pair[1]
+		if open {
+			tag = pair[0]
+		}
+		if len(s) < len(tag) && strings.HasPrefix(tag, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// reasoningFromMap returns the first non-empty reasoning field in a decoded
+// provider message or delta, or "" when there is none. Its value is discarded
+// by callers; it exists so reasoning is identified and never mistaken for text.
+func reasoningFromMap(m map[string]any) string {
+	for _, f := range reasoningFields {
+		if v, ok := m[f].(string); ok && v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // ---- streaming ----
@@ -532,18 +691,28 @@ func (p *openaiCompat) Stream(ctx context.Context, req Request, emit func(string
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 		return fmt.Errorf("%s: HTTP %d: %s", p.name, resp.StatusCode, truncate(string(b), 500))
 	}
-	return sseDeltas(ctx, resp.Body, emit, func(raw json.RawMessage) string {
+	san := &reasoningSanitizer{}
+	return sseDeltas(ctx, resp.Body, func(tok string) error {
+		if out := san.write(tok); out != "" {
+			return emit(out)
+		}
+		return nil
+	}, func(raw json.RawMessage) string {
 		var ev struct {
 			Choices []struct {
-				Delta struct {
-					Content string `json:"content"`
-				} `json:"delta"`
+				Delta map[string]any `json:"delta"`
 			} `json:"choices"`
 		}
 		if json.Unmarshal(raw, &ev) != nil || len(ev.Choices) == 0 {
 			return ""
 		}
-		return ev.Choices[0].Delta.Content
+		// Reasoning fields are deliberately ignored: only "content" is the
+		// answer. The reasoningFields allowlist documents the contract and
+		// guards against ever treating a reasoning field as text.
+		if c, ok := ev.Choices[0].Delta["content"].(string); ok {
+			return c
+		}
+		return ""
 	})
 }
 
@@ -618,7 +787,10 @@ func (p *anthropic) Stream(ctx context.Context, req Request, emit func(string) e
 		if json.Unmarshal(raw, &ev) != nil {
 			return ""
 		}
-		if ev.Type == "content_block_delta" {
+		// Only text deltas are answer text. Anthropic emits
+		// "thinking_delta" (extended thinking) and "signature_delta" on the
+		// same event shape; both are chain-of-thought and must be dropped.
+		if ev.Type == "content_block_delta" && ev.Delta.Type == "text_delta" {
 			return ev.Delta.Text
 		}
 		return ""

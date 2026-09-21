@@ -90,6 +90,10 @@ type model struct {
 	palFilter string
 	login     *loginFlowUI
 	approval  *pendingApproval
+	// connHint is a cached left-footer suffix naming a configured source
+	// that needs authentication (e.g. "Upwork needs auth"). It is refreshed
+	// when sources change, never queried every frame.
+	connHint string
 	// scopedSel and modelSel are the interactive model dialogs. Only one may
 	// be open at a time; both render in the dock below the composer.
 	scopedSel *scopedModelsUI
@@ -139,7 +143,7 @@ func Run(st *isession.ReplState) error {
 	// Park stderr on /dev/null for the lifetime of the TUI so a stray write
 	// from any dependency (the std logger, a subprocess, a provider client)
 	// can never paint over the live composer frame. Stdout is untouched: the
-	// renderer writes there. This mirrors the reference terminal UI.
+	// renderer writes there. This keeps a stray write from corrupting the frame.
 	restore := silenceStderr()
 	defer restore()
 
@@ -156,6 +160,7 @@ func (m *model) Init() tea.Cmd {
 
 func (m *model) welcomeCmd() tea.Cmd {
 	return func() tea.Msg {
+		m.refreshConnHint()
 		n, _ := m.st.Core.SessionMessageCount(m.st.Sess.ID)
 		if n == 0 && !m.welcomed {
 			m.welcomed = true
@@ -527,6 +532,11 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 			m.openApplications()
 			return m, m.flushCmds()
 		}
+	case "sources", "integrations":
+		if strings.TrimSpace(args) == "" {
+			m.openSources()
+			return m, m.flushCmds()
+		}
 	}
 	m.st.Width = m.width
 	m.st.SwitchSession = m.switchSession
@@ -535,6 +545,7 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 	m.st.OpenThinking = m.openThinking
 	m.st.OpenSessions = m.openSessions
 	m.st.OpenApprovals = m.openApprovals
+	m.st.OpenSources = m.openSources
 	var out strings.Builder
 	st := m.st
 	prev := st.Out
@@ -561,9 +572,8 @@ func (m *model) println(e entry) *model {
 }
 
 // flushCmds prints committed entries to scrollback as one block, separated
-// by a blank line — the same spacing the reference terminal UI uses. Entries
-// are grouped so the transcript reads as discrete messages, not a wall of
-// text, and no date divider is emitted.
+// by a blank line. Entries are grouped so the transcript reads as discrete
+// messages, not a wall of text, and no date divider is emitted.
 func (m *model) flushCmds() tea.Cmd {
 	if len(m.entries) == 0 {
 		return nil

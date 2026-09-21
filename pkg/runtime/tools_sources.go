@@ -55,17 +55,30 @@ func sourceTools(c *Core) []*Tool {
 				}
 				var out []map[string]any
 				var warnings []string
-				targets := reg.WithCapability(sources.CapSearch)
+				var targets []sources.OpportunitySource
 				if only, ok := args["sources"].([]any); ok && len(only) > 0 {
-					targets = nil
+					// Accept a source id ("src-upwork"), name ("Upwork"), or
+					// case-insensitive prefix ("upwork") — never silently skip.
 					for _, o := range only {
-						if id, ok := o.(string); ok {
-							if s, found := reg.Get(id); found {
-								targets = append(targets, s)
-							} else {
-								warnings = append(warnings, "unknown source "+id)
-							}
+						ref, _ := o.(string)
+						if ref == "" {
+							continue
 						}
+						if s, found := c.findSource(reg, ref); found {
+							targets = append(targets, s)
+						} else {
+							warnings = append(warnings, "unknown source "+ref)
+						}
+					}
+				} else {
+					// All connected external sources. Capabilities are discovered
+					// lazily by each adapter, so do not pre-filter on them here:
+					// filtering would skip every MCP source until first probe.
+					for _, s := range reg.All() {
+						if s.ID() == "local" {
+							continue
+						}
+						targets = append(targets, s)
 					}
 				}
 				seen := map[string]bool{}
@@ -94,15 +107,21 @@ func sourceTools(c *Core) []*Tool {
 				return string(b), nil
 			}},
 		{Name: "get_source_capabilities", Permission: PermRead, ReadOnly: true,
-			Description: "What a connected source actually supports (never assume).",
+			Description: "What a connected source actually supports (never assume). Probes once if unknown.",
 			ArgsHint:    `{"source": "upwork"}`,
 			ArgsSchema:  map[string]string{"source": "string"},
+			Timeout:     10 * time.Second,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
-				s, ok := c.SourceRegistry().Get(str(args, "source"))
-				if !ok {
-					return "", fmt.Errorf("unknown source %q", str(args, "source"))
+				conn, err := c.ProbeConnection(ctx, str(args, "source"), 8*time.Second)
+				if err != nil {
+					return "", err
 				}
-				return okResult(map[string]any{"source": s.ID(), "capabilities": s.Capabilities()}), nil
+				return okResult(map[string]any{
+					"source": conn.Name, "id": conn.ID, "kind": conn.Kind,
+					"status": conn.Status, "auth": conn.Auth,
+					"capabilities": conn.Capabilities, "tool_count": conn.ToolCount,
+					"detail": conn.Detail,
+				}), nil
 			}},
 		{Name: "source_health", Permission: PermRead, ReadOnly: true,
 			Description: "Connectivity/auth state of one or all sources.",
@@ -110,19 +129,31 @@ func sourceTools(c *Core) []*Tool {
 			ArgsSchema:  map[string]string{"source": "string"},
 			// Bounded: a health probe must never stall a turn on a dead or
 			// slow MCP endpoint.
-			Timeout: 8 * time.Second,
+			Timeout: 20 * time.Second,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
-				reg := c.SourceRegistry()
 				if id := str(args, "source"); id != "" {
-					s, ok := reg.Get(id)
-					if !ok {
-						return "", fmt.Errorf("unknown source %q", id)
+					conn, err := c.ProbeConnection(ctx, id, 8*time.Second)
+					if err != nil {
+						return "", err
 					}
-					return okResult(map[string]any{"source": id, "health": s.Health(ctx)}), nil
+					return okResult(map[string]any{
+						"source": conn.Name, "status": conn.Status, "auth": conn.Auth,
+						"detail": conn.Detail, "tool_count": conn.ToolCount,
+					}), nil
 				}
-				out := map[string]any{}
-				for _, s := range reg.All() {
-					out[s.ID()] = s.Health(ctx)
+				conns, err := c.ProbeAll(ctx, 8*time.Second)
+				if err != nil {
+					return "", err
+				}
+				out := []map[string]any{}
+				for _, conn := range conns {
+					if !conn.Enabled {
+						continue
+					}
+					out = append(out, map[string]any{
+						"source": conn.Name, "status": conn.Status, "auth": conn.Auth,
+						"detail": conn.Detail, "tool_count": conn.ToolCount,
+					})
 				}
 				return okResult(out), nil
 			}},
@@ -145,14 +176,17 @@ func sourceTools(c *Core) []*Tool {
 				return okResult(map[string]any{"status": st}), nil
 			}},
 		{Name: "list_sources", Permission: PermRead, ReadOnly: true,
-			Description: "Configured opportunity sources and their status.",
+			Description: "Configured opportunity sources and their status: kind, endpoint, auth state, and discovered capabilities.",
 			ArgsHint:    `{}`,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
-				srcs, err := c.ListSources()
+				conns, err := c.Connections()
 				if err != nil {
 					return "", err
 				}
-				return okResult(srcs), nil
+				if len(conns) == 0 {
+					return okResult([]map[string]any{}), nil
+				}
+				return okResult(conns), nil
 			}},
 	}
 }

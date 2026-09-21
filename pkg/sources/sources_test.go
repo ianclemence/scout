@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ianclemence/scout/pkg/domain"
+	"github.com/ianclemence/scout/pkg/mcpclient"
 )
 
 func listing(id, title string) domain.Opportunity {
@@ -89,5 +90,33 @@ func TestUpworkAgnostic(t *testing.T) {
 	res, err := f.Search(context.Background(), SearchFilter{Query: "go"})
 	if err != nil || len(res) != 1 {
 		t.Fatal("generic source must work without Upwork")
+	}
+}
+
+// TestCapabilityMappingPrefersStrongerIntent locks the precedence rule:
+// "submit_proposal" contains both "submit" and "proposal"; it must classify
+// as submit (the consequential action), never as draft.
+func TestCapabilityMappingPrefersStrongerIntent(t *testing.T) {
+	m := &MCPAdapter{
+		tools: []mcpclient.ToolInfo{
+			{Name: "submit_proposal", Description: "Submit a proposal to a job"},
+			{Name: "draft_cover_letter", Description: "Draft a cover letter"},
+		},
+	}
+	caps := mapTools(m.tools)
+	if !Has(caps, CapSubmit) {
+		t.Fatalf("submit capability missing from %v", caps)
+	}
+	if !Has(caps, CapDraft) {
+		t.Fatalf("draft capability missing from %v", caps)
+	}
+	// findTool must route each capability to the right tool.
+	submitName, ok := m.findTool(CapSubmit)
+	if !ok || submitName != "submit_proposal" {
+		t.Fatalf("CapSubmit routed to %q (ok=%v)", submitName, ok)
+	}
+	draftName, ok := m.findTool(CapDraft)
+	if !ok || draftName != "draft_cover_letter" {
+		t.Fatalf("CapDraft routed to %q (ok=%v)", draftName, ok)
 	}
 }

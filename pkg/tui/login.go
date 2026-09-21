@@ -32,9 +32,8 @@ const (
 	loginStageLogout
 )
 
-// loginMethod is one authentication method in the first-stage selector.
-// The offered set mirrors the reference terminal agents: an account
-// (subscription/OAuth) sign-in and an API-key sign-in.
+// loginMethod is one authentication method in the first-stage selector: an
+// account (subscription/OAuth) sign-in and an API-key sign-in.
 type loginMethod struct {
 	label    string
 	authType string // "account" or "api_key"
@@ -90,8 +89,7 @@ func newLoginFlow() *loginFlowUI {
 
 // hasAccountProviders reports whether any provider offers account (OAuth /
 // subscription) sign-in. None do today; the method selector still offers the
-// choice so the surface matches the reference agents and gains OAuth without
-// a UI change.
+// choice so OAuth can be added without a UI change.
 func hasAccountProviders(core *runtime.Core) bool {
 	return len(loginProviders(core, "account")) > 0
 }
@@ -322,9 +320,8 @@ func loginProviders(core *runtime.Core, authType string) []authProvider {
 			continue // local, no credential
 		}
 		// Only list providers that support the chosen method, so an account
-		// sign-in never offers an API-key-only provider (and vice versa),
-		// matching how the reference agents gate the two lists. An empty
-		// authType means "any", used by the logout view.
+		// sign-in never offers an API-key-only provider (and vice versa). An
+		// empty authType means "any", used by the logout view.
 		if authType == "account" && !accountProviders[ps.Provider] {
 			continue
 		}

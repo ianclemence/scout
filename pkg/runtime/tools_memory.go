@@ -101,14 +101,10 @@ func memoryTools(c *Core) []*Tool {
 				if !valid[stage] {
 					return "", fmt.Errorf("invalid stage %q", stage)
 				}
-				id := newID("app")
-				now := now()
-				_, err := c.DB.DB.Exec(`INSERT INTO applications(id,opportunity_id,source,stage,cost_connects,submitted_at,updated_at) VALUES(?,?,?,?,?,?,?)`,
-					id, str(args, "opportunity_id"), "scout", stage, int(numf(args, "connects")), now, now)
-				if err != nil {
+				if err := c.RecordApplication(str(args, "opportunity_id"), stage, int(numf(args, "connects"))); err != nil {
 					return "", err
 				}
-				return okResult(map[string]any{"id": id, "stage": stage}), nil
+				return okResult(map[string]any{"stage": stage}), nil
 			}},
 		{Name: "record_application_status", Permission: PermMutateLocal, ReadOnly: false,
 			Description: "Update an application's stage.",

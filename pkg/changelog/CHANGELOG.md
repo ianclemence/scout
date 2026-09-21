@@ -3,6 +3,48 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.6] - 2026-09-21
+
+Connector, reasoning-hygiene, and terminal release.
+
+- **Reasoning never surfaces.** A model's chain-of-thought is parsed and
+  discarded at the provider boundary: OpenAI-compatible `reasoning_content` /
+  `reasoning` / `reasoning_text` fields are ignored, Anthropic `thinking`
+  blocks and `thinking_delta` events are dropped, Ollama `message.thinking`
+  is dropped, and inline `<think>`/`<thinking>` tags are stripped even across
+  token boundaries. The stream carries only answers.
+- **Thinking defaults to off.** New sessions start at `off`; DeepSeek and
+  Moonshot are told `thinking: {type: "disabled"}` so a hybrid reasoning model
+  does not spend a turn thinking by default. `/thinking` changes it per session.
+- **Neutral status label.** The activity line says "Working" rather than
+  "Thinking" when no tool is running, since reasoning is off.
+- **Fixed a session hang.** Asking about MCP or any source tool could deadlock:
+  the source registry read credentials while a database cursor was still open
+  on a single-connection SQLite handle. Building the registry no longer queries
+  inside an open row cursor, and a regression test locks the invariant.
+- **A real connector surface.** `/sources` (alias `/integrations`, CLI
+  `scout integrations`) lists every configured work source with its kind,
+  endpoint, enabled state, auth state, and discovered capabilities — and lets
+  you test, add, enable/disable, or remove one from a picker. The agent's
+  `list_sources` / `get_source_capabilities` / `source_health` tools return the
+  same facts, so "what MCP is configured?" is answered honestly.
+- **Source names resolve.** `discover_opportunities` accepts a source id,
+  name, or prefix ("upwork" → "src-upwork"), and discovery over all sources
+  no longer silently skips un-probed MCP sources.
+- **Bounded probes.** Source discovery has a hard deadline even when the MCP
+  SDK ignores context cancellation mid-dial; a dead endpoint reports
+  `unavailable` instead of hanging the turn.
+- **Correct capability mapping.** `submit_proposal`-style tools are classified
+  as submit, not draft, so approved actions route to the right tool.
+- **Executable last mile.** An approved submission or message dispatches to the
+  source's own discovered tool; a source without the capability says so.
+- **Better CV import.** PDF names are extracted from the leading words before
+  the first contact marker, and skills are matched across PDF kerning artifacts
+  ("T yp eScript" → TypeScript) without guessing.
+- **Grouped commands.** `/help` and the palette organize commands by job
+  (Work, Decide, You, Connect, Session).
+- **Startup names your sources**, and the footer flags a source that needs auth.
+
 ## [0.7.5] - 2026-09-21
 
 Stream-hygiene release.
@@ -14,7 +56,7 @@ Stream-hygiene release.
 
 Activity and log-hygiene release.
 
-- The composer's live status names the activity in product language: "Thinking", "Searching work…", "Analyzing fit…", "Drafting a proposal…" — no tool names, no tool count.
+- The composer's live status names the activity in product language: "Working", "Searching work…", "Analyzing fit…", "Drafting a proposal…" — no tool names, no tool count.
 - Raw tool names/arguments and tool output no longer appear in the chat (TUI, line mode, or `scout ask`).
 - The TUI silences stderr and the std logger so dependency logs can never paint over the composer.
 
@@ -23,7 +65,7 @@ Activity and log-hygiene release.
 Transcript styling release.
 
 - Removed the Today/Yesterday/date dividers from the Scout transcript.
-- Entries flush as one block separated by a blank line, matching the reference terminal UI.
+- Entries flush as one block separated by a blank line.
 - Command output stays a quiet notice entry, distinct from model replies.
 
 ## [0.7.2] - 2026-09-21
@@ -98,7 +140,7 @@ Removed all references to other coding agents from code, comments, and docs; arc
 
 ## [0.5.0] - 2026-09-21
 
-Ghost-style project maturity release.
+Project maturity release.
 
 ### User workspace
 Tracked template ships with Scout; `scout init` copies it once into the data dir and never overwrites. Owner notes (SCOUT.md) travel in-context as top-priority rules. Custom skills in workspace/skills/ overlay (and can replace) built-ins.
@@ -142,7 +184,7 @@ Built-in catalog plus provider /models discovery plus live Ollama tags, cached i
 Interactive REPL with slash commands, streaming ReAct agent, resume/compact/history, in-session /model picker, per-session /thinking levels, masked /login key storage.
 
 ### MCP
-Client: remote HTTP and local stdio servers, capability discovery (Upwork first). Server: 16 domain tools over stdio and Streamable HTTP for OpenCode/Codex/Claude.
+Client: remote HTTP and local stdio servers, capability discovery (Upwork first). Server: 16 domain tools over stdio and Streamable HTTP for any MCP client.
 
 ### Product
 Human approval gate on all consequential actions. First-time Upwork flow in README. scout update self-updates; systemd user service for boot start.

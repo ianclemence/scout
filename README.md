@@ -188,12 +188,40 @@ This is the trust boundary. Nothing reaches any work source until you say so.
 
 ```bash
 scout integrations add Upwork https://mcp.upwork.com/mcp
-scout integrations test Upwork
+scout integrations list                 # what is configured, and its auth state
+scout integrations test Upwork          # read-only capability discovery
 ```
 
-The test performs read-only capability discovery. Full OAuth sign-in completes in the browser at Upwork's authorization page; the token is stored encrypted in Scout, never logged. Until authenticated, discovery reports what the integration *can* do (search, proposals, messaging, contracts) and Scout maps those into its normalized work-source model.
+Or do the same from inside the session, with a picker:
 
-Once connected, approved submissions execute through the official integration — with the same draft/confirm semantics the platform itself enforces — and the application lands in your pipeline (`/applications`, `/pipeline`). Other MCP-enabled job sources connect the same way (`scout integrations add Name <url-or-command>`); Upwork is simply the first one.
+```text
+scout› /sources
+WORK SOURCES (1)
+  Upwork · mcp · enabled
+    https://mcp.upwork.com/mcp
+    auth: not authenticated · capabilities: none discovered
+```
+
+`/sources` (alias `/integrations`) is the terminal view of every configured
+connector: kind, endpoint, enabled state, auth state, and discovered
+capabilities. Select a source to test it, enable/disable it, inspect its
+capabilities, or remove it. The same facts back the agent's `list_sources`,
+`get_source_capabilities`, and `source_health` tools — so asking Scout *"what
+MCP is configured?"* gives an honest answer instead of a guess.
+
+Full OAuth sign-in completes in the browser at Upwork's authorization page;
+the token is stored encrypted in Scout, never logged (`scout integrations
+token Upwork`). Until authenticated, discovery reports what the integration
+*can* do (search, proposals, messaging, contracts) and Scout maps those into
+its normalized work-source model.
+
+Once connected, approved submissions execute through the official
+integration — the adapter dispatches to the source's own discovered submit
+tool only after an approval is granted — and the application lands in your
+pipeline (`/applications`, `/pipeline`). Other MCP-enabled job sources connect
+the same way (`scout integrations add Name <url>` or
+`scout integrations add Name --command "prog args"`); Upwork is simply the
+first one.
 
 ### 11. Keep it fresh
 
@@ -235,7 +263,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `scout profile show\|import <file>` | Profile and CV evidence |
 | `scout providers` / `scout models [refresh [provider]]` | Providers and model catalog |
 | `scout login <provider>` | Store API key (masked prompt) |
-| `scout integrations [list\|add\|test]` | Work sources and MCP connectors |
+| `scout integrations [list\|test\|add\|token\|enable\|disable\|remove]` | Work sources and MCP connectors |
 | `scout sessions [list]` | Persistent sessions |
 | `scout skills [query]` / `scout tools` | Skill workflows and typed tool registry |
 | `scout doctor` | Diagnostics (DB, providers, Ollama, disk, version, service) |
@@ -246,26 +274,50 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 
 ### Session slash commands
 
+Commands are grouped by job in `/help` and the palette (type `/`).
+
+**Work**
+
 | Command | Description |
 |---------|-------------|
-| `/help` | All commands |
-| `/status` | Provider, model, thinking, profile, counts |
-| `/profile`, `/cv` | Who Scout thinks you are; resume content and citable items |
-| `/profile import <path>` | Import a CV without leaving the session |
-| `/opportunities [query]`, `/opportunity <id\|#>`, `/discover` | Pipeline intake |
-| `/analyze <id>`, `/proposal <id>` | Fit reasoning and drafting |
-| `/approvals [approve\|reject <id>]` | Decide consequential actions |
+| `/discover [query]` | Run discovery across connected sources (read-only) |
+| `/opportunities [query]` | Browse stored opportunities (picker when bare) |
+| `/opportunity <id\|#>` | Posting + evaluation + proposal |
+| `/analyze <id>` | Deterministic filter + structured fit |
+| `/proposal <id>` | Draft a grounded proposal (never sends) |
 | `/applications`, `/pipeline`, `/inbox` | Track outcomes |
 | `/feedback <id> <signal> [note]` | Explicit preference data (visible, never hidden) |
-| `/model [provider/model]` | Select conversation model (searchable picker: Tab all/scoped, Ctrl+S default) |
-| `/scoped-models` | Enable/disable & order models for Ctrl+P cycling (Ctrl+S saves) |
-| `/thinking <off\|low\|medium\|high\|max>` | Reasoning level, mapped to provider controls |
-| `/providers`, `/sources` | Credentials, integrations |
+
+**Decide**
+
+| Command | Description |
+|---------|-------------|
+| `/approvals [approve\|reject <id>]` | The trust boundary; picker when bare |
+
+**You**
+
+| Command | Description |
+|---------|-------------|
+| `/profile`, `/cv` | Who Scout thinks you are; resume content and citable items |
+| `/profile import <path>` | Import a CV without leaving the session |
+
+**Connect**
+
+| Command | Description |
+|---------|-------------|
+| `/sources` / `/integrations` | Work sources & MCP connectors: list, test, add, token, enable, disable, remove |
+| `/providers`, `/login [provider]`, `/logout` | Credentials: availability, staged sign-in (method → provider → masked key), remove stored key |
+| `/model [provider/model]`, `/scoped-models` | Conversation model (searchable picker: Tab all/scoped, Ctrl+S default); scope for Ctrl+P cycling |
+| `/thinking [level]` | Reasoning level (interactive picker), mapped to provider controls |
 | `/skills`, `/tools` | Skill workflows, tool registry with permission classes |
-| `/login [provider]`, `/logout` | Staged sign-in (method → provider → masked key) / remove stored key |
-| `/session`, `/sessions`, `/new`, `/resume`, `/compact`, `/clear` | Session lifecycle (resume/new switch in place) |
-| `/name <name>`, `/export <path>`, `/copy`, `/keys` | Rename, export transcript, copy answer, shortcuts |
-| `/doctor`, `/quit` | Full diagnostics in-session, exit |
+
+**Session**
+
+| Command | Description |
+|---------|-------------|
+| `/status`, `/session`, `/sessions`, `/new`, `/name` | Session lifecycle (bare `/sessions` or `/resume` opens the picker) |
+| `/export <path>`, `/copy`, `/clear`, `/compact` | Transcript tools |
+| `/doctor`, `/changelog`, `/keys`, `/help`, `/quit` | Diagnostics, notes, shortcuts, exit |
 
 Anything without a slash is a request to the agent. Piped (non-TTY) input falls back to the classic line loop automatically.
 
@@ -311,7 +363,9 @@ Enabled with user lingering, so it starts at device boot without login. Never ex
 
 ## MCP
 
-**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, OAuth tokens stored encrypted. Upwork is the first work source; LinkedIn-style listings and other job platforms fit the same normalized model as they gain usable official interfaces. The domain never assumes one platform\u2019s concepts.
+**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, OAuth tokens stored encrypted. `/sources` (CLI: `scout integrations`) is the single connector surface: it lists every configured source with its auth state and discovered capabilities, and can test, add, enable/disable, or remove one. A dead endpoint is bounded by a hard timeout and reports `unavailable` — it can never hang a turn. Upwork is the first work source; other job platforms fit the same normalized model as they gain usable official interfaces. The domain never assumes one platform's concepts.
+
+**Capability, then action** — a source's capabilities come from its own tool list, never from assumptions. When a source exposes a submit or message tool, Scout dispatches to it only after an approval is granted; when it does not, Scout says so instead of pretending.
 
 **Scout as server** — `scout mcp` (stdio) or `scout mcp serve` (Streamable HTTP) exposes domain tools (`get_profile`, `search_opportunities`, `analyze_opportunity`, `prepare_proposal`, `get_pipeline`, `approve_action`, …) to any MCP client. Same Core, same rules — including approvals.
 

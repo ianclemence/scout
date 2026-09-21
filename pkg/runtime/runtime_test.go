@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ianclemence/scout/pkg/agent"
 	"github.com/ianclemence/scout/pkg/config"
@@ -65,6 +66,33 @@ func TestToolRegistry(t *testing.T) {
 		if c.FindTool(want) == nil {
 			t.Fatalf("missing tool %s", want)
 		}
+	}
+}
+
+func TestSourceRegistryDoesNotDeadlockWithSecrets(t *testing.T) {
+	// Regression: the DB uses a single connection. SourceRegistry used to
+	// call LoadSecret while a row cursor over `sources` was still open, so
+	// the nested query waited forever for the connection the cursor held —
+	// any tool that built the registry (source_health, discover, …) hung
+	// the session. Building the registry with a configured connector AND a
+	// stored token must return promptly.
+	c := testCore(t)
+	if _, err := c.DB.DB.Exec(`INSERT INTO sources(id,name,kind,endpoint,enabled,capabilities) VALUES('src-upwork','Upwork','mcp','https://mcp.upwork.com/mcp',1,'')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SaveSecret("mcp:Upwork", "token-for-test"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan int, 1)
+	go func() { done <- len(c.SourceRegistry().All()) }()
+	select {
+	case n := <-done:
+		// local + upwork
+		if n < 2 {
+			t.Fatalf("expected configured sources, got %d", n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("SourceRegistry deadlocked with a stored secret")
 	}
 }
 

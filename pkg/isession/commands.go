@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ianclemence/scout/pkg/changelog"
 	"github.com/ianclemence/scout/pkg/config"
@@ -24,7 +25,25 @@ type Command struct {
 	Description string
 	ArgHint     string
 	Handler     func(ctx *SessionCtx, args string) error
+	// Group organizes the command in /help and the palette. Every command
+	// belongs to exactly one group; the help output is grouped and ordered.
+	Group string
+	// Aliases are alternate names that resolve to this command.
+	Aliases []string
 }
+
+// Command groups, in the order they appear in /help. Order mirrors the
+// product: do the work, decide, understand yourself, connect, configure.
+const (
+	GroupWork    = "Work"
+	GroupDecide  = "Decide"
+	GroupYou     = "You"
+	GroupConnect = "Connect"
+	GroupSession = "Session"
+)
+
+// groupOrder is the canonical rendering order for command groups.
+var groupOrder = []string{GroupWork, GroupDecide, GroupYou, GroupConnect, GroupSession}
 
 // SessionCtx carries per-session state for command handlers.
 type SessionCtx struct {
@@ -54,69 +73,100 @@ type SessionCtx struct {
 	OpenSessions func()
 	// OpenApprovals, when set (TUI), opens the interactive approval picker.
 	OpenApprovals func()
+	// OpenSources, when set (TUI), opens the interactive work-source manager.
+	OpenSources func()
 }
 
 func (s *SessionCtx) Printf(format string, a ...any) { s.Out(format, a...) }
 
-// Registry returns all commands in stable order.
+// Registry returns all commands in the canonical order: grouped by job, then
+// alphabetical within a group. This single list drives the /help output, the
+// TUI command palette, and the line-mode completer.
 func Registry() []*Command {
 	cmds := []*Command{
-		{Name: "help", Description: "Show commands", Handler: cmdHelp},
-		{Name: "status", Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
-		{Name: "profile", Description: "Show profile summary", Handler: cmdProfile},
-		{Name: "cv", Description: "Show CV/resume and citable items", Handler: cmdCV},
-		{Name: "scoped-models", Description: "Enable/disable & order models for Ctrl+P cycling (Ctrl+S saves)", Handler: cmdScopedModels},
-		{Name: "model", Description: "Select conversation model (opens selector UI)", ArgHint: "<provider/model>", Handler: cmdModel},
-		{Name: "thinking", Description: "Set reasoning level (interactive picker; /thinking <level> to set directly)", ArgHint: "[level]", Handler: cmdThinking},
-		{Name: "providers", Description: "Show provider availability", Handler: cmdProviders},
-		{Name: "login", Description: "Connect a provider (staged: method → provider → masked key)", ArgHint: "[provider]", Handler: cmdLogin},
-		{Name: "logout", Description: "Remove a stored provider key", Handler: cmdLogout},
-		{Name: "sources", Description: "Work sources and capabilities", Handler: cmdSources},
-		{Name: "skills", Description: "List agent skills (workflows)", Handler: cmdSkills},
-		{Name: "tools", Description: "List agent tools and permission classes", Handler: cmdTools},
-		{Name: "opportunities", Description: "List opportunities: /opportunities [query] [--status s]", ArgHint: "[query]", Handler: cmdOpps},
-		{Name: "opportunity", Description: "Show detail + evaluation: /opportunity <id>", ArgHint: "<id>", Handler: cmdOpp},
-		{Name: "discover", Description: "Filter pass over stored opportunities (does not fetch sources)", Handler: cmdDiscover},
-		{Name: "analyze", Description: "Analyze fit: /analyze <id>", ArgHint: "<id>", Handler: cmdAnalyze},
-		{Name: "proposal", Description: "Draft proposal: /proposal <id>", ArgHint: "<id>", Handler: cmdProposal},
-		{Name: "approvals", Description: "Review/decide pending actions (picker; records your decision)", ArgHint: "[approve|reject <id>]", Handler: cmdApprovals},
-		{Name: "applications", Description: "List applications", Handler: cmdApplications},
-		{Name: "pipeline", Description: "Pipeline counts by stage", Handler: cmdPipeline},
-		{Name: "inbox", Description: "Messages needing attention", Handler: cmdInbox},
-		{Name: "feedback", Description: "Record feedback: /feedback <opp-id> <signal> [note]", ArgHint: "<opp-id> <signal>", Handler: cmdFeedback},
-		{Name: "session", Description: "Current session info", Handler: cmdSession},
-		{Name: "sessions", Description: "List/pick a session (Enter switches in the TUI)", Handler: cmdSessions},
-		{Name: "new", Description: "Start a new session", Handler: cmdNew},
-		{Name: "name", Description: "Rename the session: /name <name>", ArgHint: "<name>", Handler: cmdName},
-		{Name: "export", Description: "Export transcript to markdown: /export <path>", ArgHint: "<path>", Handler: cmdExport},
-		{Name: "copy", Description: "Copy last assistant message (clipboard where available)", Handler: cmdCopy},
-		{Name: "keys", Description: "Keyboard shortcuts", Handler: cmdKeys},
-		{Name: "resume", Description: "Resume a session (bare lists/picks; /resume <id|name>)", ArgHint: "[id|name]", Handler: cmdResume},
-		{Name: "clear", Description: "Clear screen (keeps history)", Handler: cmdClear},
-		{Name: "compact", Description: "Summarize and trim session context", Handler: cmdCompact},
-		{Name: "changelog", Description: "Show release notes", Handler: cmdChangelog},
-		{Name: "doctor", Description: "Diagnostics", Handler: cmdDoctor},
-		{Name: "quit", Description: "Exit Scout", Handler: cmdQuit},
+		// Work — find, evaluate, draft, track.
+		{Name: "discover", Group: GroupWork, Description: "Run discovery across connected sources (read-only)", Handler: cmdDiscover},
+		{Name: "opportunities", Group: GroupWork, Description: "Browse stored opportunities; /opportunities <query>", ArgHint: "[query]", Aliases: []string{"opps"}, Handler: cmdOpps},
+		{Name: "opportunity", Group: GroupWork, Description: "Posting + evaluation + proposal: /opportunity <id>", ArgHint: "<id>", Handler: cmdOpp},
+		{Name: "analyze", Group: GroupWork, Description: "Deterministic filter + structured fit: /analyze <id>", ArgHint: "<id>", Handler: cmdAnalyze},
+		{Name: "proposal", Group: GroupWork, Description: "Draft a grounded proposal (never sends): /proposal <id>", ArgHint: "<id>", Handler: cmdProposal},
+		{Name: "applications", Group: GroupWork, Description: "Pipeline applications", Aliases: []string{"apps"}, Handler: cmdApplications},
+		{Name: "pipeline", Group: GroupWork, Description: "Application counts by stage", Handler: cmdPipeline},
+		{Name: "inbox", Group: GroupWork, Description: "Messages needing attention", Handler: cmdInbox},
+		{Name: "feedback", Group: GroupWork, Description: "Record explicit preference: /feedback <id> <signal> [note]", ArgHint: "<id> <signal>", Handler: cmdFeedback},
+		// Decide — the trust boundary.
+		{Name: "approvals", Group: GroupDecide, Description: "Review/decide pending actions (picker; records your decision)", ArgHint: "[approve|reject <id>]", Handler: cmdApprovals},
+		// You — the source of truth.
+		{Name: "profile", Group: GroupYou, Description: "Structured profile; /profile import <path> to update", ArgHint: "[import <path>]", Handler: cmdProfile},
+		{Name: "cv", Group: GroupYou, Description: "Resume content and citable evidence items", Handler: cmdCV},
+		// Connect — sources, providers, models.
+		{Name: "sources", Group: GroupConnect, Description: "Work sources & MCP connectors: list, test, add, token", ArgHint: "[list|test|add|token|enable|disable|remove]", Aliases: []string{"integrations"}, Handler: cmdSources},
+		{Name: "providers", Group: GroupConnect, Description: "Provider availability and model counts", Handler: cmdProviders},
+		{Name: "login", Group: GroupConnect, Description: "Connect a provider (staged: method → provider → key)", ArgHint: "[provider]", Handler: cmdLogin},
+		{Name: "logout", Group: GroupConnect, Description: "Remove a stored provider key", Handler: cmdLogout},
+		{Name: "model", Group: GroupConnect, Description: "Select conversation model (interactive picker)", ArgHint: "[provider/model]", Handler: cmdModel},
+		{Name: "scoped-models", Group: GroupConnect, Description: "Enable/disable & order models for Ctrl+P cycling (Ctrl+S saves)", Handler: cmdScopedModels},
+		{Name: "thinking", Group: GroupConnect, Description: "Set reasoning level (interactive picker)", ArgHint: "[level]", Handler: cmdThinking},
+		{Name: "skills", Group: GroupConnect, Description: "List agent skills (workflows)", Handler: cmdSkills},
+		{Name: "tools", Group: GroupConnect, Description: "List agent tools and permission classes", Handler: cmdTools},
+		// Session — lifecycle and transcript.
+		{Name: "help", Group: GroupSession, Description: "Show commands and keys", Handler: cmdHelp},
+		{Name: "keys", Group: GroupSession, Description: "Keyboard shortcuts", Handler: cmdKeys},
+		{Name: "status", Group: GroupSession, Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
+		{Name: "session", Group: GroupSession, Description: "Current session info", Handler: cmdSession},
+		{Name: "sessions", Group: GroupSession, Description: "List/pick a session (Enter switches in the TUI)", Aliases: []string{"resume"}, Handler: cmdSessions},
+		{Name: "new", Group: GroupSession, Description: "Start a new session", Handler: cmdNew},
+		{Name: "name", Group: GroupSession, Description: "Rename the session: /name <name>", ArgHint: "<name>", Handler: cmdName},
+		{Name: "export", Group: GroupSession, Description: "Export transcript to markdown: /export <path>", ArgHint: "<path>", Handler: cmdExport},
+		{Name: "copy", Group: GroupSession, Description: "Copy last assistant message (clipboard where available)", Handler: cmdCopy},
+		{Name: "clear", Group: GroupSession, Description: "Clear screen (keeps history)", Handler: cmdClear},
+		{Name: "compact", Group: GroupSession, Description: "Summarize and trim session context", Handler: cmdCompact},
+		{Name: "doctor", Group: GroupSession, Description: "Diagnostics (DB, providers, Ollama, sources, disk)", Handler: cmdDoctor},
+		{Name: "changelog", Group: GroupSession, Description: "Show release notes", Handler: cmdChangelog},
+		{Name: "quit", Group: GroupSession, Description: "Exit Scout", Aliases: []string{"exit"}, Handler: cmdQuit},
 	}
-	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Name < cmds[j].Name })
+	// Stable order: canonical group order, then command order within a group.
+	rank := map[string]int{}
+	for i, g := range groupOrder {
+		rank[g] = i
+	}
+	sort.SliceStable(cmds, func(i, j int) bool {
+		ri, rj := rank[cmds[i].Group], rank[cmds[j].Group]
+		if ri != rj {
+			return ri < rj
+		}
+		return cmds[i].Name < cmds[j].Name
+	})
 	return cmds
 }
 
 func FindCommand(name string) *Command {
+	name = strings.ToLower(strings.TrimSpace(name))
 	for _, c := range Registry() {
 		if c.Name == name {
 			return c
+		}
+		for _, a := range c.Aliases {
+			if a == name {
+				return c
+			}
 		}
 	}
 	return nil
 }
 
 func cmdHelp(ctx *SessionCtx, args string) error {
-	ctx.Printf("Scout commands:\n")
+	ctx.Printf("Scout commands\n")
+	last := ""
 	for _, c := range Registry() {
+		if c.Group != last {
+			ctx.Printf("\n%s\n", c.Group)
+			last = c.Group
+		}
 		ctx.Printf("  /%-14s %s\n", c.Name, c.Description)
 	}
-	ctx.Printf("\nAnything else is a request to the agent. Ctrl-C interrupts, Ctrl-D exits.\n")
+	ctx.Printf("\nAnything else is a request to the agent. Ctrl-C interrupts · Ctrl-D exits.\n")
+	ctx.Printf("Keys: Cmd palette as you type · Ctrl+L model · Ctrl+P cycle models · Esc interrupt/quit.\n")
 	return nil
 }
 
@@ -414,10 +464,9 @@ var validThinking = func() map[string]bool {
 	return m
 }()
 
-// cmdThinking mirrors the reference agents: bare /thinking opens an
-// interactive selector (TUI) or a numbered prompt (line mode); an argument
-// selects directly and is validated against the available levels, listing
-// them on an unknown value.
+// cmdThinking: bare /thinking opens an interactive selector (TUI) or a
+// numbered prompt (line mode); an argument selects directly and is validated
+// against the available levels, listing them on an unknown value.
 func cmdThinking(ctx *SessionCtx, args string) error {
 	level := strings.ToLower(firstField(args))
 	if level != "" {
@@ -468,18 +517,153 @@ func displayThinking(level string) string {
 }
 
 func cmdSources(ctx *SessionCtx, args string) error {
-	srcs, err := ctx.Core.ListSources()
+	parts := strings.Fields(args)
+	sub := "list"
+	if len(parts) > 0 {
+		sub = parts[0]
+	}
+	switch sub {
+	case "list", "ls":
+		return printConnections(ctx)
+	case "test":
+		ref := ""
+		if len(parts) > 1 {
+			ref = parts[1]
+		}
+		return cmdSourcesTest(ctx, ref)
+	case "add":
+		if len(parts) < 3 {
+			return fmt.Errorf("usage: /sources add <name> <https-url>  (or /sources add <name> --command \"prog args\")")
+		}
+		name := parts[1]
+		if parts[2] == "--command" {
+			cmdline := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(args[strings.Index(args, "--command")+len("--command"):]), "\""))
+			cmdline = strings.Trim(cmdline, "\"")
+			if err := ctx.Core.AddStdioConnection(name, cmdline); err != nil {
+				return err
+			}
+			ctx.Printf("Added stdio connector %s. Test it: /sources test %s\n", name, name)
+			return nil
+		}
+		if err := ctx.Core.AddMCPConnection(name, parts[2]); err != nil {
+			return err
+		}
+		ctx.Printf("Added connector %s. Authenticate with /sources token %s, then /sources test %s.\n", name, name, name)
+		return nil
+	case "token":
+		if len(parts) < 2 {
+			return fmt.Errorf("usage: /sources token <name>")
+		}
+		return cmdSourcesToken(ctx, parts[1])
+	case "enable", "disable":
+		if len(parts) < 2 {
+			return fmt.Errorf("usage: /sources %s <name>", sub)
+		}
+		if err := ctx.Core.SetConnectionEnabled(parts[1], sub == "enable"); err != nil {
+			return err
+		}
+		ctx.Printf("%s %sd.\n", parts[1], sub)
+		return nil
+	case "remove", "rm":
+		if len(parts) < 2 {
+			return fmt.Errorf("usage: /sources remove <name>")
+		}
+		if err := ctx.Core.RemoveConnection(parts[1]); err != nil {
+			return err
+		}
+		ctx.Printf("Removed %s.\n", parts[1])
+		return nil
+	default:
+		return fmt.Errorf("usage: /sources [list|test <name>|add <name> <url>|token <name>|enable|disable|remove <name>]")
+	}
+}
+
+// printConnections renders the configured connector surface — the terminal
+// answer to "what MCP is configured".
+func printConnections(ctx *SessionCtx) error {
+	conns, err := ctx.Core.Connections()
 	if err != nil {
 		return err
 	}
-	w := wOf(ctx)
-	for _, s := range srcs {
-		en := "off"
-		if s.Enabled {
-			en = "on"
-		}
-		ctx.Printf("%s\n", cell(padRight(s.Name, 16)+padRight(s.Kind+" "+en, 14)+s.Endpoint, w))
+	if len(conns) == 0 {
+		ctx.Printf("No work sources configured.\nAdd one: /sources add Upwork https://mcp.upwork.com/mcp\n")
+		return nil
 	}
+	ctx.Printf("WORK SOURCES (%d)\n", len(conns))
+	for _, conn := range conns {
+		state := "disabled"
+		if conn.Enabled {
+			state = "enabled"
+			if conn.Status != "" {
+				state = conn.Status
+			}
+		}
+		auth := conn.Auth
+		switch auth {
+		case "token_stored":
+			auth = "token stored (untested)"
+		case "unauthenticated":
+			auth = "not authenticated"
+		case "authenticated":
+			auth = "authenticated"
+		}
+		ctx.Printf("  %s · %s · %s\n", conn.Name, conn.Kind, state)
+		target := conn.Endpoint
+		if conn.Kind == "mcp-stdio" {
+			target = conn.Command
+		}
+		if target != "" {
+			ctx.Printf("    %s\n", target)
+		}
+		ctx.Printf("    auth: %s · capabilities: %s\n", auth, runtime.CapabilityLabels(conn.Capabilities))
+		if conn.Detail != "" && conn.Status != "" && conn.Status != "configured" {
+			ctx.Printf("    %s\n", conn.Detail)
+		}
+	}
+	ctx.Printf("\nTest a source: /sources test <name> · authenticate: /sources token <name>\n")
+	return nil
+}
+
+// cmdSourcesTest probes one source (or all when ref is empty) with a bounded
+// timeout and reports capabilities.
+func cmdSourcesTest(ctx *SessionCtx, ref string) error {
+	if ref == "" {
+		ctx.Printf("Probing all enabled sources…\n")
+		conns, err := ctx.Core.ProbeAll(ctxBg(), 8*time.Second)
+		if err != nil {
+			return err
+		}
+		for _, conn := range conns {
+			if !conn.Enabled {
+				continue
+			}
+			ctx.Printf("  %s: %s · auth %s · %s\n", conn.Name, conn.Status, conn.Auth, runtime.CapabilityLabels(conn.Capabilities))
+			if conn.Detail != "" {
+				ctx.Printf("    %s\n", conn.Detail)
+			}
+		}
+		return nil
+	}
+	conn, err := ctx.Core.ProbeConnection(ctxBg(), ref, 12*time.Second)
+	if err != nil {
+		return err
+	}
+	ctx.Printf("%s: %s · auth %s · %d tools · %s\n", conn.Name, conn.Status, conn.Auth, conn.ToolCount, runtime.CapabilityLabels(conn.Capabilities))
+	if conn.Detail != "" {
+		ctx.Printf("  %s\n", conn.Detail)
+	}
+	return nil
+}
+
+// cmdSourcesToken stores an MCP token. In the TUI this runs through the
+// line-mode readline path only when invoked from the CLI fallback; the TUI
+// uses its own masked prompt via the login flow.
+func cmdSourcesToken(ctx *SessionCtx, name string) error {
+	conn, err := ctx.Core.FindConnection(name)
+	if err != nil {
+		return err
+	}
+	ctx.Printf("Storing a token for %s requires a masked prompt. Run in your shell: scout integrations token %s\n", conn.Name, conn.Name)
 	return nil
 }
 
@@ -531,17 +715,25 @@ func cmdSession(ctx *SessionCtx, args string) error {
 }
 
 func cmdSessions(ctx *SessionCtx, args string) error {
+	// With an argument, this is "resume": resolve and switch in place.
+	if ref := firstField(args); ref != "" {
+		return cmdResume(ctx, ref)
+	}
 	list, err := csession.List(ctx.Core.DB)
 	if err != nil {
 		return err
 	}
+	if len(list) == 0 {
+		ctx.Printf("No sessions yet.\n")
+		return nil
+	}
 	w := wOf(ctx)
-	for _, s := range list {
+	for i, s := range list {
 		mark := ""
 		if s.ID == ctx.Session.ID {
 			mark = "  ← current"
 		}
-		ctx.Printf("%s\n", cell(padRight(shortID(s.ID), 14)+padRight(s.Name, 18)+s.Provider+"/"+s.Model+mark, w))
+		ctx.Printf("%s\n", cell(fmt.Sprintf("%2d  ", i+1)+padRight(shortID(s.ID), 14)+padRight(s.Name, 18)+s.Provider+"/"+s.Model+mark, w))
 	}
 	return nil
 }

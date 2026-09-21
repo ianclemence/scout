@@ -170,18 +170,36 @@ func applyTools(c *Core) []*Tool {
 				}
 				// Source execution: only adapters advertising submit.
 				reg := c.SourceRegistry()
-				sid := o.Source
-				if sid == "manual" {
-					sid = "local"
-				} else if !strings.HasPrefix(sid, "src-") {
-					sid = "src-" + sid
-				}
+				sid := normalizeSourceID(o.Source)
 				src, ok := reg.Get(sid)
 				if !ok || !src.Has(sources.CapSubmit) {
 					return "", fmt.Errorf("source %q does not support submission — record manually", o.Source)
 				}
-				_ = src
-				return "", fmt.Errorf("source %q submission not yet wired to an executable adapter call", o.Source)
+				adapter, ok := src.(*sources.MCPAdapter)
+				if !ok {
+					return "", fmt.Errorf("source %q submission is not wired to an executable adapter", o.Source)
+				}
+				// The last mile: dispatch to the source's discovered submit tool.
+				// The approval gate above already ran; this executes exactly what
+				// the human approved.
+				callArgs := map[string]any{
+					"job_id": o.SourceOppID, "id": o.SourceOppID,
+					"opportunity_id": o.SourceOppID,
+				}
+				if pid := str(args, "proposal_id"); pid != "" {
+					callArgs["proposal_id"] = pid
+				}
+				if raw, ok := args["fields"]; ok {
+					callArgs["fields"] = raw
+				}
+				out, err := adapter.SubmitApplication(ctx, callArgs)
+				if err != nil {
+					return "", fmt.Errorf("source %q submission failed: %w", o.Source, err)
+				}
+				if err := c.RecordApplication(oid, "submitted", 0); err != nil {
+					return okResult(map[string]any{"submitted": true, "source": o.Source, "response": out, "record_warning": err.Error()}), nil
+				}
+				return okResult(map[string]any{"submitted": true, "source": o.Source, "response": out}), nil
 			}},
 		{Name: "send_message", Permission: PermExternal, ReadOnly: false,
 			Description: "Send a client/recruiter message. REQUIRES approval_id of an approved action.",
@@ -194,7 +212,36 @@ func applyTools(c *Core) []*Tool {
 				if str(args, "body") == "" || str(args, "to") == "" {
 					return "", fmt.Errorf("to and body required")
 				}
-				return "", fmt.Errorf("no connected source supports messaging yet — draft saved, send manually")
+				// Prefer an explicit source argument; otherwise try each enabled
+				// source advertising messaging. First success wins.
+				var targets []*sources.MCPAdapter
+				if sid := str(args, "source"); sid != "" {
+					if a, ok := c.MCPAdapterFor(normalizeSourceID(sid)); ok {
+						targets = append(targets, a)
+					}
+				} else {
+					for _, s := range c.SourceRegistry().WithCapability(sources.CapMessage) {
+						if a, ok := s.(*sources.MCPAdapter); ok {
+							targets = append(targets, a)
+						}
+					}
+				}
+				if len(targets) == 0 {
+					return "", fmt.Errorf("no connected source supports messaging — draft saved, send manually")
+				}
+				callArgs := map[string]any{"to": str(args, "to"), "body": str(args, "body")}
+				if tid := str(args, "thread_id"); tid != "" {
+					callArgs["thread_id"] = tid
+				}
+				var lastErr error
+				for _, a := range targets {
+					out, err := a.SendMessage(ctx, callArgs)
+					if err == nil {
+						return okResult(map[string]any{"sent": true, "source": a.Name(), "response": out}), nil
+					}
+					lastErr = err
+				}
+				return "", fmt.Errorf("messaging failed: %w", lastErr)
 			}},
 		{Name: "prepare_follow_up", Permission: PermDraft, ReadOnly: false,
 			Description: "Draft a follow-up (never sends). Considers elapsed time and prior contact.",

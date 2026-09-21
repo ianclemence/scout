@@ -90,8 +90,10 @@ func TestPaletteSlashFlow(t *testing.T) {
 		t.Fatalf("filter = %q", m.palFilter)
 	}
 	for _, it := range m.sel.items {
-		if !strings.HasPrefix(strings.TrimPrefix(it.label, "/"), "mod") {
-			t.Fatalf("unfiltered item %q", it.label)
+		name := strings.ToLower(strings.TrimPrefix(it.label, "/"))
+		desc := strings.ToLower(it.detail)
+		if !strings.HasPrefix(name, "mod") && !strings.Contains(desc, "mod") {
+			t.Fatalf("palette item does not match filter: %q / %q", it.label, it.detail)
 		}
 	}
 	// Backspace all the way: palette dismisses, composer keeps "".

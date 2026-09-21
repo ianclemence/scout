@@ -95,14 +95,36 @@ func ListEvidence(db *store.Store) ([]domain.Evidence, error) {
 
 // ---- lightweight heuristics (deterministic, honest: keyword extraction only) ----
 
-var knownSkills = []string{"go", "python", "php", "laravel", "react", "react native", "node.js", "node", "typescript", "javascript", "aws", "docker", "kubernetes", "postgres", "mysql", "sqlite", "llm", "openai", "anthropic", "mcp", "api", "saas", "flutter", "django", "rails", "java", "rust", "graphql", "redis", "terraform", "ai", "ml"}
+var knownSkills = []string{
+	"go", "python", "php", "laravel", "react", "react native", "node.js", "node",
+	"typescript", "javascript", "aws", "docker", "kubernetes", "postgres", "postgresql",
+	"mysql", "sqlite", "llm", "openai", "anthropic", "mcp", "api", "saas", "flutter",
+	"django", "rails", "java", "rust", "graphql", "redis", "terraform", "ai", "ml",
+	"tailwind", "mongodb", "next.js", "expo", "firebase", "express", "ollama", "hnsw",
+}
 
+// guessSkills extracts known skills by keyword. It matches against both the
+// raw text and a space-collapsed copy: PDF extraction often breaks words at
+// kerning gaps ("T yp eScript"), so collapsing single spaces between letters
+// recovers the real token without guessing.
 func guessSkills(text string) []string {
 	low := strings.ToLower(text)
+	collapsed := strings.ToLower(collapseLetterSpaces(text))
 	var out []string
 	seen := map[string]bool{}
 	for _, s := range knownSkills {
-		if strings.Contains(low, s) && !seen[s] {
+		matched := false
+		if len([]rune(s)) <= 4 {
+			// Short tokens (go, ai, ml, api, expo) match only as whole words,
+			// so collapsing never turns "MongoDB" into a spurious "go".
+			matched = containsWord(low, s) || containsWord(collapsed, s)
+		} else {
+			// Multi-word skills may have had their space consumed by the
+			// PDF collapse ("ReactNative"), so also test the joined form.
+			joined := strings.ReplaceAll(s, " ", "")
+			matched = strings.Contains(low, s) || strings.Contains(collapsed, s) || strings.Contains(collapsed, joined)
+		}
+		if matched && !seen[s] {
 			seen[s] = true
 			out = append(out, s)
 		}
@@ -110,7 +132,47 @@ func guessSkills(text string) []string {
 	return out
 }
 
+// containsWord reports whether token appears in s delimited by non-letters.
+func containsWord(s, token string) bool {
+	from := 0
+	for {
+		i := strings.Index(s[from:], token)
+		if i < 0 {
+			return false
+		}
+		i += from
+		leftOK := i == 0 || !isLetter(rune(s[i-1]))
+		end := i + len(token)
+		rightOK := end >= len(s) || !isLetter(rune(s[end]))
+		if leftOK && rightOK {
+			return true
+		}
+		from = i + 1
+	}
+}
+
+// collapseLetterSpaces removes a single space that sits between two letters.
+// This repairs PDF kerning artifacts ("soft w are" → "software") while leaving
+// punctuation-adjacent spacing intact.
+func collapseLetterSpaces(s string) string {
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i, r := range runes {
+		if r == ' ' && i > 0 && i+1 < len(runes) && isLetter(runes[i-1]) && isLetter(runes[i+1]) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func isLetter(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+}
+
 func guessName(text string) string {
+	// Line-based: a short early line with 2–4 words and no contact marker.
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || len(line) > 60 {
@@ -121,7 +183,68 @@ func guessName(text string) string {
 			return line
 		}
 	}
+	// Blob fallback: PDFs often extract as one long line. The name is the
+	// leading run of capitalized words before the first contact marker.
+	head := text
+	if len(head) > 400 {
+		head = head[:400]
+	}
+	if i := firstContactIndex(head); i > 0 {
+		head = head[:i]
+	}
+	var name []string
+	for _, w := range strings.Fields(head) {
+		w = strings.Trim(w, ".,;:()[]{}|/\\!?\"'“”")
+		if !isASCIIWord(w) {
+			break
+		}
+		name = append(name, w)
+		if len(name) == 4 {
+			break
+		}
+	}
+	if len(name) >= 2 {
+		return strings.Join(name, " ")
+	}
 	return ""
+}
+
+// firstContactIndex returns the index of the first email, phone, or URL
+// marker in s, or -1 when there is none.
+func firstContactIndex(s string) int {
+	best := -1
+	mark := func(i int) {
+		if i >= 0 && (best < 0 || i < best) {
+			best = i
+		}
+	}
+	mark(strings.IndexByte(s, '@'))
+	for _, u := range []string{"http://", "https://", "www."} {
+		mark(strings.Index(s, u))
+	}
+	// A plus followed by a digit marks a phone number.
+	for i := 0; i+1 < len(s); i++ {
+		if s[i] == '+' && s[i+1] >= '0' && s[i+1] <= '9' {
+			mark(i)
+			break
+		}
+	}
+	return best
+}
+
+// isASCIIWord reports whether w is a plain ASCII word starting uppercase,
+// which is what a name token looks like.
+func isASCIIWord(w string) bool {
+	if w == "" || w[0] < 'A' || w[0] > 'Z' {
+		return false
+	}
+	for _, r := range w {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || r == '-' || r == '\'' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func guessExperience(text string) []domain.Experience {

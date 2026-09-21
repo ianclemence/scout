@@ -287,6 +287,20 @@ func (c *Core) ListApplications(limit int) ([]domain.Application, error) {
 
 // ---------- approvals ----------
 
+// RecordApplication records an application attempt at the given stage. It is
+// the single writer used by the record_application tool and by an executed
+// submit_application, so the pipeline can never be updated two ways.
+func (c *Core) RecordApplication(oppID, stage string, connects int) error {
+	if stage == "" {
+		stage = "prepared"
+	}
+	_, err := c.DB.DB.Exec(`INSERT INTO applications(id,opportunity_id,source,stage,cost_connects,submitted_at,updated_at) VALUES(?,?,?,?,?,?,?)`,
+		newID("app"), oppID, "scout", stage, connects, now(), now())
+	return err
+}
+
+// ---------- approvals ----------
+
 func (c *Core) PendingApprovals() ([]domain.PendingAction, error) { return approve.List(c.DB, true) }
 
 // ---------- sources ----------
@@ -552,20 +566,29 @@ func (c *Core) SourceRegistryWith(extra []sources.OpportunitySource) *sources.Re
 			return c.GetOpportunity(id)
 		},
 	})
-	rows, err := c.DB.DB.Query(`SELECT name,kind,endpoint,COALESCE(command,'') FROM sources WHERE enabled=1`)
-	if err == nil {
-		defer rows.Close()
+	// Read the connector rows fully before touching the credential store.
+	// The store opens SQLite with a single connection (SetMaxOpenConns(1));
+	// calling LoadSecret while a row cursor is open would wait forever for a
+	// connection the cursor already holds. Drain first, then enrich.
+	type connectorRow struct{ name, kind, endpoint, command string }
+	var conns []connectorRow
+	if rows, err := c.DB.DB.Query(`SELECT name,kind,endpoint,COALESCE(command,'') FROM sources WHERE enabled=1`); err == nil {
 		for rows.Next() {
-			var name, kind, endpoint, command string
-			rows.Scan(&name, &kind, &endpoint, &command)
-			tok, _ := c.LoadSecret("mcp:" + name)
-			conn, err := sources.ConnectorFor(kind, endpoint, command, tok)
-			if err != nil {
-				continue
+			var r connectorRow
+			if rows.Scan(&r.name, &r.kind, &r.endpoint, &r.command) == nil {
+				conns = append(conns, r)
 			}
-			id := "src-" + strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-			reg.Add(sources.NewMCPAdapter(id, name, conn))
 		}
+		rows.Close()
+	}
+	for _, r := range conns {
+		tok, _ := c.LoadSecret("mcp:" + r.name)
+		conn, err := sources.ConnectorFor(r.kind, r.endpoint, r.command, tok)
+		if err != nil {
+			continue
+		}
+		id := "src-" + strings.ToLower(strings.ReplaceAll(r.name, " ", "-"))
+		reg.Add(sources.NewMCPAdapter(id, r.name, conn))
 	}
 	for _, s := range extra {
 		reg.Add(s)

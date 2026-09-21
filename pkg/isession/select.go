@@ -21,8 +21,7 @@ var loginProviderIDs = []string{"openai", "anthropic", "deepseek", "moonshot"}
 func cmdLogin(ctx *SessionCtx, args string) error {
 	p := strings.ToLower(firstField(args))
 	if p == "" {
-		// Stage 1: authentication method, mirroring the TUI and the
-		// reference agents.
+		// Stage 1: authentication method, mirroring the TUI.
 		ctx.Printf("Select authentication method:\n")
 		ctx.Printf("  1  Sign in with an account\n")
 		ctx.Printf("  2  Sign in with an API key\n")

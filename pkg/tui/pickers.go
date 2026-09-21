@@ -31,10 +31,9 @@ func firstLine(s string) string {
 }
 
 // This file holds the general interactive pickers that make Scout's slash
-// commands behave like the reference terminal agents: an inline, searchable
-// list with a marked current row, dim descriptions, and a footer that names
-// exactly what each key does. Typing filters; arrows move; Enter acts; Esc
-// cancels. Nothing is "just printed words".
+// commands first-class: an inline, searchable list with a marked current row,
+// dim descriptions, and a footer that names exactly what each key does.
+// Typing filters; arrows move; Enter acts; Esc cancels.
 
 // pickItem is one row in a listP icker.
 type pickItem struct {
@@ -207,6 +206,117 @@ func (u *listPickerUI) view(width int) string {
 	}
 	b.WriteString(styleModelScopeFooter.Render("  " + footer + " · esc cancel"))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// openSources opens the work-source manager. Selecting a source opens a
+// second-level action picker: test connectivity, enable/disable, show
+// capabilities, or remove. This is the terminal answer to "what MCP is
+// configured" — with actions, not just a list.
+func (m *model) openSources() {
+	conns, err := m.st.Core.Connections()
+	if err != nil {
+		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
+		return
+	}
+	if len(conns) == 0 {
+		m.println(entry{kind: eNotice, text: "No work sources configured.\nAdd one in your shell: scout integrations add Upwork https://mcp.upwork.com/mcp", at: time.Now()})
+		return
+	}
+	var items []pickItem
+	for _, conn := range conns {
+		state := "disabled"
+		if conn.Enabled {
+			state = "enabled"
+			if conn.Status != "" {
+				state = conn.Status
+			}
+		}
+		detail := conn.Kind + " · " + state
+		if conn.Auth != "" {
+			detail += " · " + conn.Auth
+		}
+		items = append(items, pickItem{label: conn.Name, detail: detail, value: conn.Name})
+	}
+	m.picker = newListPicker("Work Sources", "enter opens actions · MCP connectors & capabilities", "enter actions", items, func(name string) string {
+		m.openSourceActions(name)
+		return ""
+	})
+}
+
+// openSourceActions shows the actions available for one configured source.
+func (m *model) openSourceActions(name string) {
+	conn, err := m.st.Core.FindConnection(name)
+	if err != nil {
+		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
+		return
+	}
+	status := conn.Status
+	if status == "" {
+		status = "not probed"
+	}
+	var items []pickItem
+	items = append(items, pickItem{label: "Test connection", detail: "read-only capability discovery", value: "test"})
+	if conn.Enabled {
+		items = append(items, pickItem{label: "Disable", detail: "hide from discovery and the agent", value: "disable"})
+	} else {
+		items = append(items, pickItem{label: "Enable", detail: "include in discovery and the agent", value: "enable"})
+	}
+	items = append(items, pickItem{label: "Show capabilities", detail: status + " · " + runtime.CapabilityLabels(conn.Capabilities), value: "capabilities"})
+	items = append(items, pickItem{label: "Remove", detail: "delete the connector and its stored token", value: "remove"})
+	statusLine := conn.Kind + " · endpoint " + sourceTarget(conn)
+	m.picker = newListPicker(conn.Name, statusLine, "enter run", items, func(action string) string {
+		return m.runSourceAction(name, action)
+	})
+	m.picker.secondaryHint = ""
+}
+
+func sourceTarget(conn *runtime.Connection) string {
+	if conn.Kind == "mcp-stdio" {
+		return conn.Command
+	}
+	return conn.Endpoint
+}
+
+// runSourceAction dispatches a source-manager action.
+func (m *model) runSourceAction(name, action string) string {
+	defer m.refreshConnHint()
+	switch action {
+	case "test":
+		conn, err := m.st.Core.ProbeConnection(context.Background(), name, 10*time.Second)
+		if err != nil {
+			return "test failed: " + err.Error()
+		}
+		line := fmt.Sprintf("%s: %s · auth %s · %d tools · %s", conn.Name, conn.Status, conn.Auth, conn.ToolCount, runtime.CapabilityLabels(conn.Capabilities))
+		if conn.Detail != "" {
+			line += "\n" + conn.Detail
+		}
+		m.entries = append(m.entries, entry{kind: eNotice, text: line, at: time.Now()})
+		return ""
+	case "enable":
+		if err := m.st.Core.SetConnectionEnabled(name, true); err != nil {
+			return "enable failed: " + err.Error()
+		}
+		return name + " enabled"
+	case "disable":
+		if err := m.st.Core.SetConnectionEnabled(name, false); err != nil {
+			return "disable failed: " + err.Error()
+		}
+		return name + " disabled"
+	case "capabilities":
+		conn, err := m.st.Core.FindConnection(name)
+		if err != nil {
+			return err.Error()
+		}
+		m.entries = append(m.entries, entry{kind: eNotice, text: fmt.Sprintf("%s\n  kind: %s\n  target: %s\n  status: %s\n  auth: %s\n  capabilities: %s",
+			conn.Name, conn.Kind, sourceTarget(conn), conn.Status, conn.Auth, runtime.CapabilityLabels(conn.Capabilities)), at: time.Now()})
+		return ""
+	case "remove":
+		if err := m.st.Core.RemoveConnection(name); err != nil {
+			return "remove failed: " + err.Error()
+		}
+		return name + " removed"
+	}
+	return ""
 }
 
 // ---------- TUI openers ----------
@@ -439,9 +549,9 @@ func (m *model) openApplications() {
 
 // ---------- thinking picker (/thinking) ----------
 
-// newThinkingPicker builds the reasoning-level selector, mirroring the
-// reference agents: the current level is marked, each level is described with
-// what it maps to for the current provider, typing filters, and Enter selects.
+// newThinkingPicker builds the reasoning-level selector: the current level is
+// marked, each level is described with what it maps to for the current
+// provider, typing filters, and Enter selects.
 func newThinkingPicker(current, provider, model string, onSelect func(level string) string) *listPickerUI {
 	var items []pickItem
 	for _, lvl := range llm.ThinkLevels {

@@ -80,6 +80,8 @@ var (
 	styleScoutArt     = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 	styleWelcomeCmds  = lipgloss.NewStyle().Foreground(cMuted)
 
+	styleWelcomeSources = lipgloss.NewStyle().Foreground(cMuted).Italic(true)
+
 	// Markdown roles, mapped to Scout brand tokens (accent = identity,
 	// gold = headings/emphasis, green = code, muted = quotes/meta). This
 	// keeps model responses on-palette rather than importing foreign hexes.

@@ -53,6 +53,8 @@ type ReplState struct {
 	OpenSessions func()
 	// OpenApprovals, when set (TUI), opens the interactive approval picker.
 	OpenApprovals func()
+	// OpenSources, when set (TUI), opens the interactive work-source manager.
+	OpenSources func()
 	// Out receives command output. Defaults to stdout printing.
 	Out func(format string, a ...any)
 	// Width is the terminal width for command output (0 = unknown).
@@ -81,6 +83,7 @@ func (r *ReplState) ctx() *SessionCtx {
 		OpenThinking:      r.OpenThinking,
 		OpenSessions:      r.OpenSessions,
 		OpenApprovals:     r.OpenApprovals,
+		OpenSources:       r.OpenSources,
 	}
 }
 
@@ -256,7 +259,7 @@ func ActivityLabel(name string) string {
 	case "load_skill":
 		return "Loading a skill"
 	}
-	return "Thinking"
+	return "Working"
 }
 
 // handleAgentTurn runs one conversational agent turn with streaming render.
@@ -270,7 +273,7 @@ func handleAgentTurn(st *ReplState, input string, ctx context.Context) {
 	msgs := append([]llm.Message{}, st.History...)
 	var assistant strings.Builder
 	// Line mode renders the same product-language activity the TUI shows
-	// ("Thinking", "Searching work…"). Raw tool names, arguments, and tool
+	// ("Working", "Searching work…"). Raw tool names, arguments, and tool
 	// output are never printed into the conversation — only a short activity
 	// line, overwritten in place — so model-loop internals cannot leak.
 	lastActivity := ""

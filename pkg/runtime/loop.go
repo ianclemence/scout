@@ -39,12 +39,17 @@ To use a tool, emit exactly one fenced block:
 Rules: one tool call per turn. After the tool result arrives, continue reasoning. When done, answer in plain text with no tool block. Never invent tool names. Consequential actions only create approvals; always say what is awaiting approval instead of claiming it was executed.`
 
 // RunAgent executes the ReAct loop. Streaming tokens go through emit.
-// think is the normalized reasoning level (off/low/medium/high/max/"").
+// think is the normalized reasoning level (off/minimal/low/medium/high/xhigh/
+// max); empty defaults to off. Reasoning is never surfaced regardless of
+// level — the provider layer drops it — but off also avoids the cost.
 // Relevant skills are selected from the user request and injected;
 // ctx cancellation interrupts the loop (Ctrl-C).
 func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Message, think string, emit Emitter) (string, error) {
 	if eng == nil || eng.LLM == nil {
 		return "", fmt.Errorf("no language model configured for this role — set provider credentials (/login) or use Ollama")
+	}
+	if strings.TrimSpace(think) == "" {
+		think = llm.ThinkOff
 	}
 	emit(Event{Type: "agent_start"})
 	msgs := append([]llm.Message{}, history...)
