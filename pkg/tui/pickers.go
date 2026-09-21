@@ -10,6 +10,7 @@ import (
 
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
+	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/runtime"
 )
@@ -258,8 +259,8 @@ func (m *model) openSources() {
 			}
 		}
 		detail := conn.Kind + " · " + state
-		if conn.Auth != "" {
-			detail += " · " + conn.Auth
+		if a := conn.HumanAuth(); a != "" {
+			detail += " · " + a
 		}
 		items = append(items, pickItem{label: conn.Name, detail: detail, value: conn.Name})
 	}
@@ -319,7 +320,7 @@ func (m *model) runSourceAction(name, action string) string {
 		if err != nil {
 			return "test failed: " + err.Error()
 		}
-		line := fmt.Sprintf("%s: %s · auth %s · %d tools · %s", conn.Name, conn.Status, conn.Auth, conn.ToolCount, runtime.CapabilityLabels(conn.Capabilities))
+		line := fmt.Sprintf("%s: %s · %s · %d tools · %s", conn.Name, conn.Status, conn.HumanAuth(), conn.ToolCount, runtime.CapabilityLabels(conn.Capabilities))
 		if conn.Detail != "" {
 			line += "\n" + conn.Detail
 		}
@@ -341,7 +342,7 @@ func (m *model) runSourceAction(name, action string) string {
 			return err.Error()
 		}
 		m.entries = append(m.entries, entry{kind: eNotice, text: fmt.Sprintf("%s\n  kind: %s\n  target: %s\n  status: %s\n  auth: %s\n  capabilities: %s",
-			conn.Name, conn.Kind, sourceTarget(conn), conn.Status, conn.Auth, runtime.CapabilityLabels(conn.Capabilities)), at: time.Now()})
+			conn.Name, conn.Kind, sourceTarget(conn), conn.Status, conn.HumanAuth(), runtime.CapabilityLabels(conn.Capabilities)), at: time.Now()})
 		return ""
 	case "remove":
 		if err := m.st.Core.RemoveConnection(name); err != nil {
@@ -456,7 +457,7 @@ func (m *model) openOpportunities() {
 	for _, o := range opps {
 		items = append(items, pickItem{
 			label:  o.Title,
-			detail: o.Source + " · " + o.Status,
+			detail: o.HumanListDetail(),
 			value:  o.ID,
 		})
 	}
@@ -485,7 +486,9 @@ func (m *model) openOpportunityActions(id string) {
 }
 
 // runOpportunityAction dispatches the chosen opportunity action. Analyze and
-// draft run the worker model synchronously; the result prints inline.
+// draft run the worker model synchronously; the result prints inline as
+// rendered markdown, so labels are bold and any markdown from the model is
+// styled rather than shown as literal ** markers.
 func (m *model) runOpportunityAction(action, id string) string {
 	switch action {
 	case "analyze":
@@ -497,21 +500,28 @@ func (m *model) runOpportunityAction(action, id string) string {
 		if err != nil {
 			return "analyze failed: " + err.Error()
 		}
-		m.entries = append(m.entries, entry{kind: eNotice, text: fmt.Sprintf("%s — filter pass=%v (%s)\nRecommendation: %s — %s", o.Title, f.Pass, f.Reason, ev.Recommendation, ev.Reason), at: time.Now()})
+		body := "### " + strings.TrimSpace(o.Title) + "\n\n" + domain.HumanEvaluation(ev, f.Pass, f.Reason)
+		m.entries = append(m.entries, entry{kind: eCommand, text: body, at: time.Now()})
 		return ""
 	case "proposal":
 		pr, err := m.st.Core.DraftProposal(context.Background(), id, m.st.Core.EngineForRole(config.RoleWorker))
 		if err != nil {
 			return "draft failed: " + err.Error()
 		}
-		m.entries = append(m.entries, entry{kind: eScout, text: "PROPOSAL DRAFT\n\n" + pr.CoverLetter + "\n\nBased on: " + strings.Join(pr.EvidenceIDs, ", "), at: time.Now()})
+		var b strings.Builder
+		b.WriteString("### Proposal draft\n\n")
+		b.WriteString(strings.TrimSpace(pr.CoverLetter))
+		if len(pr.EvidenceIDs) > 0 {
+			b.WriteString("\n\n**Grounded in:** " + strings.Join(pr.EvidenceIDs, ", "))
+		}
+		m.entries = append(m.entries, entry{kind: eCommand, text: b.String(), at: time.Now()})
 		return ""
 	case "detail":
 		o, err := m.st.Core.GetOpportunity(id)
 		if err != nil {
 			return err.Error()
 		}
-		m.entries = append(m.entries, entry{kind: eNotice, text: fmt.Sprintf("[%s] %s\nBudget %s %.0f–%.0f · credits %d\n\n%s", o.Source, o.Status, o.BudgetType, o.BudgetMin, o.BudgetMax, o.ConnectsCost, o.Description), at: time.Now()})
+		m.entries = append(m.entries, entry{kind: eCommand, text: domain.HumanOpportunity(o), at: time.Now()})
 		return ""
 	}
 	return ""

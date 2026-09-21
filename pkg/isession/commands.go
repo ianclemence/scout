@@ -162,14 +162,15 @@ func cmdStatus(ctx *SessionCtx, args string) error {
 	_ = ctx.Core.DB.DB.QueryRow(`SELECT COUNT(*) FROM pending_actions WHERE status IN ('draft','pending_approval')`).Scan(&pending)
 	_ = ctx.Core.DB.DB.QueryRow(`SELECT COUNT(*) FROM applications`).Scan(&apps)
 	p, _ := ctx.Core.Profile()
-	ctx.Printf("scout %s · session %s (%s)\n", Version(), ctx.Session.ID[:12], ctx.Session.Name)
+	ctx.Printf("### Status\n\n")
 	think := ctx.Session.Thinking
 	if think == "" {
 		think = "provider default"
 	}
-	ctx.Printf("provider %s · model %s · thinking %s\n", ctx.Session.Provider, ctx.Session.Model, think)
-	ctx.Printf("profile %s · %d skills\n", p.DisplayName, len(p.Skills))
-	ctx.Printf("opportunities %d · pending approvals %d · applications %d\n", opps, pending, apps)
+	ctx.Printf("- **Scout:** %s · session %s (%s)\n", Version(), ctx.Session.ID[:12], ctx.Session.Name)
+	ctx.Printf("- **Model:** %s/%s · thinking %s\n", ctx.Session.Provider, ctx.Session.Model, think)
+	ctx.Printf("- **Profile:** %s · %d skills\n", p.DisplayName, len(p.Skills))
+	ctx.Printf("- **Pipeline:** %d opportunities · %d pending approvals · %d applications\n", opps, pending, apps)
 	return nil
 }
 
@@ -257,7 +258,7 @@ func cmdOpps(ctx *SessionCtx, args string) error {
 	w := wOf(ctx)
 	for i, o := range opps {
 		ctx.Printf("%s\n", cell(fmt.Sprintf("%2d  %s", i+1, o.Title), w))
-		ctx.Printf("    %s\n", cell(shortID(o.ID)+" · "+o.Source+" · "+o.Status, w))
+		ctx.Printf("    %s\n", cell(shortID(o.ID)+" · "+o.HumanListDetail(), w))
 	}
 	return nil
 }
@@ -271,22 +272,15 @@ func cmdOpp(ctx *SessionCtx, args string) error {
 	if err != nil {
 		return err
 	}
-	ctx.Printf("= %s =\n[%s] %s\nBudget %s %.0f–%.0f · credits %d\n\n%s\n", o.Title, o.Source, o.Status,
-		o.BudgetType, o.BudgetMin, o.BudgetMax, o.ConnectsCost, o.Description)
+	ctx.Printf("%s\n", domain.HumanOpportunity(o))
 	ev, err := ctx.Core.LatestEvaluation(o.ID)
 	if err != nil {
-		ctx.Printf("\nNot analyzed yet. Run /analyze %s\n", shortID(o.ID))
+		ctx.Printf("\n_Not analyzed yet. Run `/analyze %s`._\n", shortID(o.ID))
 		return nil
 	}
-	ctx.Printf("\nMATCH: %s — %s\n", ev.Recommendation, ev.Reason)
-	for _, d := range ev.Dimensions {
-		ctx.Printf("  %-12s %-12s %s\n", d.Name, d.Rating, d.Detail)
-	}
-	if len(ev.Risks) > 0 {
-		ctx.Printf("Risks: %s\n", strings.Join(ev.Risks, "; "))
-	}
+	ctx.Printf("\n%s\n", domain.HumanEvaluation(ev, true, ""))
 	if pr, err := ctx.Core.LatestProposal(o.ID); err == nil {
-		ctx.Printf("\nProposal (%s):\n%s\n", pr.Status, pr.CoverLetter)
+		ctx.Printf("\n**Proposal** (%s)\n\n%s\n", pr.Status, pr.CoverLetter)
 	}
 	return nil
 }
@@ -651,15 +645,7 @@ func printConnections(ctx *SessionCtx) error {
 				state = conn.Status
 			}
 		}
-		auth := conn.Auth
-		switch auth {
-		case "token_stored":
-			auth = "token stored (untested)"
-		case "unauthenticated":
-			auth = "not authenticated"
-		case "authenticated":
-			auth = "authenticated"
-		}
+		auth := conn.HumanAuth()
 		ctx.Printf("  %s · %s · %s\n", conn.Name, conn.Kind, state)
 		target := conn.Endpoint
 		if conn.Kind == "mcp-stdio" {

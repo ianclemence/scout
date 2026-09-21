@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ianclemence/scout/pkg/config"
+	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/sources"
 	"github.com/ianclemence/scout/pkg/version"
@@ -60,7 +61,7 @@ func oppsCmd(c *runtime.Core, args []string) error {
 		return err
 	}
 	for _, o := range opps {
-		fmt.Printf("%s\t[%s] %s (%s)\n", o.ID, o.Source, o.Title, o.Status)
+		fmt.Printf("%s\t%s — %s\n", o.ID, o.Title, o.HumanListDetail())
 	}
 	return nil
 }
@@ -91,11 +92,10 @@ func oppCmd(c *runtime.Core, args []string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("[%s] %s (%s)\nbudget %s %.0f–%.0f · credits %d\n\n%s\n", o.Source, o.Title, o.Status,
-			o.BudgetType, o.BudgetMin, o.BudgetMax, o.ConnectsCost, o.Description)
+		fmt.Println(domain.HumanOpportunity(o))
 		if ev, err := c.LatestEvaluation(id); err == nil {
-			b, _ := json.MarshalIndent(ev, "", "  ")
-			fmt.Printf("\n--- evaluation ---\n%s\n", b)
+			fmt.Println()
+			fmt.Println(domain.HumanEvaluation(ev, true, ""))
 		}
 		if pr, err := c.LatestProposal(id); err == nil {
 			fmt.Printf("\n--- proposal (%s) ---\n%s\n", pr.Status, pr.CoverLetter)

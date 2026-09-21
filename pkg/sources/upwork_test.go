@@ -107,8 +107,13 @@ func TestUpworkSubmitUsesPreviewConfirm(t *testing.T) {
 		t.Fatalf("create args: %v", create)
 	}
 	cp, _ := create["params"].(map[string]any)
-	if cp["job_id"] != "2095" || cp["cover_letter"] != "Hello" {
+	// The live contract names the job param job_reference and requires a
+	// numeric charged_amount.
+	if cp["job_reference"] != "2095" || cp["cover_letter"] != "Hello" {
 		t.Fatalf("create params: %v", cp)
+	}
+	if amt, _ := cp["charged_amount"].(float64); amt != 45 {
+		t.Fatalf("charged_amount must be a number: %v", cp["charged_amount"])
 	}
 	confirm := f.lastArgs["upwork__confirm_preview"]
 	if confirm["action"] != "confirm" {
@@ -117,6 +122,41 @@ func TestUpworkSubmitUsesPreviewConfirm(t *testing.T) {
 	cp2, _ := confirm["params"].(map[string]any)
 	if cp2["type"] != "proposal" || cp2["preview_id"] != "prev-1" {
 		t.Fatalf("confirm params: %v", cp2)
+	}
+}
+
+// TestUpworkSubmitSurfacesPolicyGate ensures a policy-acknowledgment response
+// is surfaced to the user rather than confirmed blindly.
+func TestUpworkSubmitSurfacesPolicyGate(t *testing.T) {
+	f := upworkFake()
+	f.responses["upwork__manage_proposals"] = `Please confirm: I understand Upwork's policies. To proceed the user must acknowledge the policy.`
+	u := NewUpworkAdapter("src-upwork", "Upwork", f)
+
+	out, err := u.SubmitApplication(context.Background(), map[string]any{
+		"job_reference": "2095", "cover_letter": "Hi", "charged_amount": 30.0,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "acknowledge") {
+		t.Fatalf("policy gate must be surfaced: %q", out)
+	}
+	if _, ok := f.lastArgs["upwork__confirm_preview"]; ok {
+		t.Fatal("a policy-gated draft must never be confirmed")
+	}
+}
+
+// TestUpworkSubmitRequiresNumber ensures a string/missing bid is refused.
+func TestUpworkSubmitRequiresNumber(t *testing.T) {
+	f := upworkFake()
+	u := NewUpworkAdapter("src-upwork", "Upwork", f)
+	for _, args := range []map[string]any{
+		{"job_reference": "2095", "cover_letter": "Hi"},
+		{"job_reference": "2095", "cover_letter": "Hi", "charged_amount": "45"},
+	} {
+		if _, err := u.SubmitApplication(context.Background(), args); err == nil {
+			t.Fatalf("expected a numeric charged_amount error for %v", args)
+		}
 	}
 }
 

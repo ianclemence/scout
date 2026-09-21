@@ -3,6 +3,32 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.1] - 2026-09-22
+
+Human-readable opportunity views and a corrected Upwork submission flow.
+
+- **Opportunity detail and analysis read as labeled prose, not field dumps.**
+  `[src-upwork]`, the internal `analyzed` status, and `credits 0` are gone from
+  the human view — replaced by bold labels (`Budget`, `Match`, `Assessment`),
+  a humanized source (`Upwork`), and pay shown as a rate (`$15–25/hr`). The
+  model's richer assessment is now its own rendered "Model notes" section
+  instead of being truncated mid-word into a one-line reason, and markdown is
+  styled rather than shown as literal `**`.
+- **Connector auth reads plainly.** Low-level states like `token_stored` now
+  surface as `connected` or `sign in needed`; the raw value stays in JSON for
+  tooling. `/status` renders as a labeled block.
+- **Upwork submission now matches the live MCP contract.** The proposal draft
+  uses `job_reference`, requires a numeric bid, performs the mandatory
+  invitation/existing-proposal pre-check (avoiding Upwork's VJ-JA-10
+  rejection), and surfaces the one-time payment-protection policy
+  acknowledgment instead of silently failing. Messages use the correct
+  `send` / `send_to_user` params. A submission blocked by a missing rate now
+  explains the exact number needed and offers to set it; a zero Connects
+  balance is stated with the cost rather than attempted.
+- **A manual, opt-in live Upwork probe** (`go test -tags liveupwork`) exercises
+  all read-only capabilities against the real server and stops at the draft
+  step, so no Connects are spent and nothing is sent.
+
 ## [0.13.0] - 2026-09-22
 
 Terminal reading experience: tables, rich text, and a responsive dock.

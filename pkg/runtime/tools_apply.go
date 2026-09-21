@@ -184,7 +184,7 @@ func applyTools(c *Core) []*Tool {
 				// human approved. Include the prepared proposal so Upwork can create
 				// the preview with the cover letter and bid.
 				callArgs := map[string]any{
-					"job_id": o.SourceOppID, "id": o.SourceOppID,
+					"job_reference": o.SourceOppID, "job_id": o.SourceOppID, "id": o.SourceOppID,
 					"opportunity_id": o.SourceOppID,
 				}
 				if pid := str(args, "proposal_id"); pid != "" {

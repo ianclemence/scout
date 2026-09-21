@@ -7,6 +7,7 @@ package agent
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/llm"
@@ -45,8 +46,27 @@ Evidence available (only cite these): %s`,
 	if err != nil || strings.TrimSpace(out) == "" {
 		return base
 	}
-	base.Reason = base.Reason + " | llm: " + truncate(strings.TrimSpace(out), 600)
+	// Keep the model's assessment as its own, plainly rendered section rather
+	// than appending it to the one-line reason. Trim at a word boundary so the
+	// reader never sees a word cut in half.
+	base.Analysis = trimAtWord(strings.TrimSpace(out), 1200)
 	return base
+}
+
+// trimAtWord cuts s to at most n bytes, preferring the last whitespace boundary
+// so the result never ends mid-word. It never returns a partial UTF-8 rune.
+func trimAtWord(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := s[:n]
+	if i := strings.LastIndexAny(cut, " \n\t"); i > 0 {
+		cut = cut[:i]
+	}
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return strings.TrimRight(cut, " \n\t") + "…"
 }
 
 // DraftProposal generates a tailored cover letter grounded in evidence.

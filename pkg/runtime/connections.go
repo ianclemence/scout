@@ -44,6 +44,22 @@ type Connection struct {
 	Detail       string   `json:"detail,omitempty"`
 }
 
+// HumanAuth renders the connector's auth state for humans: a plain "connected"
+// or "sign in needed", never a low-level token like "token_stored". The raw
+// value stays available in the JSON form of the struct.
+func (c Connection) HumanAuth() string {
+	switch c.Auth {
+	case "authenticated", "open", "token_stored":
+		return "connected"
+	case "unauthenticated", "token_rejected":
+		return "sign in needed"
+	case "":
+		return "unknown"
+	default:
+		return strings.ReplaceAll(c.Auth, "_", " ")
+	}
+}
+
 // Connections lists configured work sources with their stored-token state.
 // It never probes the network: this is the fast, always-safe listing used by
 // the session startup and the CLI. Use ProbeConnection/ProbeAll to test.

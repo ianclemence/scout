@@ -239,24 +239,54 @@ func (u *UpworkAdapter) SubmitApplication(ctx context.Context, args map[string]a
 	if err != nil {
 		return "", err
 	}
-	jobID := firstString(args, "job_id", "opportunity_id", "id")
+	jobID := firstString(args, "job_reference", "job_id", "opportunity_id", "id")
 	if jobID == "" {
-		return "", fmt.Errorf("job_id is required")
+		return "", fmt.Errorf("job_reference is required")
 	}
-	params := map[string]any{"job_id": jobID}
-	if v := firstString(args, "cover_letter", "proposal"); v != "" {
-		params["cover_letter"] = v
+	cover := firstString(args, "cover_letter", "proposal")
+	if cover == "" {
+		return "", fmt.Errorf("cover_letter is required")
 	}
-	if v, ok := args["charged_amount"]; ok {
-		params["charged_amount"] = v
-	} else if v, ok := args["bid"]; ok {
-		params["charged_amount"] = v
+	// charged_amount is required by the live contract and must be a number,
+	// not a string.
+	amount, ok := args["charged_amount"].(float64)
+	if !ok {
+		if v, ok2 := args["bid"].(float64); ok2 {
+			amount, ok = v, true
+		}
+	}
+	if !ok || amount <= 0 {
+		return "", fmt.Errorf("a numeric charged_amount (bid) greater than 0 is required — set a rate on the proposal or the profile's minimum rate first")
+	}
+
+	// MANDATORY pre-check (Upwork rejects create with VJ-JA-10 otherwise):
+	// an existing invitation must be accepted, not created against, and an
+	// existing proposal must not be duplicated.
+	if inv := u.existingInvitation(ctx, org, jobID); inv != "" {
+		return "", fmt.Errorf("this job has an invitation (%s); use accept-invitation instead of creating a proposal", inv)
+	}
+	if prior := u.existingProposal(ctx, org, jobID); prior != "" {
+		return "", fmt.Errorf("a proposal already exists for this job (%s); edit or withdraw it instead", prior)
+	}
+
+	params := map[string]any{
+		"job_reference":  jobID,
+		"cover_letter":   cover,
+		"charged_amount": amount,
+	}
+	if ans, ok := args["answers"].([]any); ok && len(ans) > 0 {
+		params["answers"] = ans
 	}
 	created, err := u.Conn.CallTool(ctx, "upwork__manage_proposals", map[string]any{
 		"action": "create", "org_uid": org, "params": params,
 	})
 	if err != nil {
 		return "", fmt.Errorf("create proposal preview: %w", err)
+	}
+	// The server can gate the first proposal behind a policy acknowledgment.
+	// Do not confirm it silently: surface the exact step the user must take.
+	if needsPolicyAck(created) {
+		return created + "\n\nAction needed: Scout must acknowledge Upwork's payment-protection policy once (manage_proposals action=acknowledge_policy) after you confirm you understand it. The proposal was not submitted.", nil
 	}
 	previewID := extractString(created, "preview_id", "draft_id")
 	if previewID == "" {
@@ -272,6 +302,48 @@ func (u *UpworkAdapter) SubmitApplication(ctx context.Context, args map[string]a
 	return confirmed, nil
 }
 
+// existingInvitation reports the invitation id for a job, if one exists.
+func (u *UpworkAdapter) existingInvitation(ctx context.Context, org, jobID string) string {
+	out, err := u.Conn.CallTool(ctx, "upwork__list_freelancer_proposals", map[string]any{
+		"action": "invitations", "org_uid": org,
+	})
+	if err != nil {
+		return "" // a failed pre-check must not block a legitimate create
+	}
+	// Match an invitation whose job reference equals this job.
+	if extractString(out, jobID) != "" && strings.Contains(out, jobID) {
+		if id := extractString(out, "id"); id != "" {
+			return id
+		}
+		return "present"
+	}
+	return ""
+}
+
+// existingProposal reports a prior proposal id for a job, if one exists.
+func (u *UpworkAdapter) existingProposal(ctx context.Context, org, jobID string) string {
+	out, err := u.Conn.CallTool(ctx, "upwork__list_freelancer_proposals", map[string]any{
+		"action": "list", "org_uid": org,
+	})
+	if err != nil {
+		return ""
+	}
+	if strings.Contains(out, jobID) {
+		if id := extractString(out, "id"); id != "" {
+			return id
+		}
+		return "present"
+	}
+	return ""
+}
+
+// needsPolicyAck reports whether a create response is the one-time policy
+// acknowledgment gate rather than a usable preview.
+func needsPolicyAck(out string) bool {
+	low := strings.ToLower(out)
+	return strings.Contains(low, "acknowledge") && strings.Contains(low, "policy")
+}
+
 // SendMessage sends a room message (or starts a conversation with a user).
 func (u *UpworkAdapter) SendMessage(ctx context.Context, args map[string]any) (string, error) {
 	org, err := u.resolveOrgUID(ctx)
@@ -282,21 +354,25 @@ func (u *UpworkAdapter) SendMessage(ctx context.Context, args map[string]any) (s
 	if body == "" {
 		return "", fmt.Errorf("message body is required")
 	}
-	action := "send"
-	params := map[string]any{"message": body}
+	// The live contract has two distinct sends: to a room (send) and to a user
+	// (send_to_user, which needs the recipient's user_id and org_id).
 	if room := firstString(args, "room_id", "to"); room != "" {
-		params["room_id"] = room
-	} else if jobID := firstString(args, "job_posting_id"); jobID != "" {
-		action = "send_to_user"
+		return u.Conn.CallTool(ctx, "upwork__send_message", map[string]any{
+			"action": "send", "org_uid": org,
+			"params": map[string]any{"room_id": room, "message": body},
+		})
+	}
+	userID := firstString(args, "user_id")
+	orgID := firstString(args, "org_id", "recipient_org_id")
+	if userID == "" || orgID == "" {
+		return "", fmt.Errorf("room_id, or both user_id and org_id, are required to send a new message")
+	}
+	params := map[string]any{"user_id": userID, "org_id": orgID, "message": body}
+	if jobID := firstString(args, "job_posting_id"); jobID != "" {
 		params["job_posting_id"] = jobID
-		if pid := firstString(args, "proposal_id"); pid != "" {
-			params["proposal_id"] = pid
-		}
-	} else {
-		return "", fmt.Errorf("room_id (or job_posting_id) is required")
 	}
 	return u.Conn.CallTool(ctx, "upwork__send_message", map[string]any{
-		"action": action, "org_uid": org, "params": params,
+		"action": "send_to_user", "org_uid": org, "params": params,
 	})
 }
 

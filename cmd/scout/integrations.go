@@ -49,7 +49,7 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 			if conn.Kind == "mcp-stdio" {
 				endpoint = conn.Command
 			}
-			fmt.Printf("%-14s %-10s %-16s %-18s %s\n", conn.Name, conn.Kind, state, conn.Auth, runtime.CapabilityLabels(conn.Capabilities))
+			fmt.Printf("%-14s %-10s %-16s %-18s %s\n", conn.Name, conn.Kind, state, conn.HumanAuth(), runtime.CapabilityLabels(conn.Capabilities))
 			if endpoint != "" {
 				fmt.Printf("%-14s %s\n", "", endpoint)
 			}
@@ -90,7 +90,7 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 			return err
 		}
 		fmt.Printf("%s: status=%s auth=%s tools=%d capabilities=%s\n",
-			conn.Name, conn.Status, conn.Auth, conn.ToolCount,
+			conn.Name, conn.Status, conn.HumanAuth(), conn.ToolCount,
 			runtime.CapabilityLabels(conn.Capabilities))
 		if conn.Detail != "" {
 			fmt.Printf("  %s\n", conn.Detail)

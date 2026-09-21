@@ -138,7 +138,11 @@ type MatchEvaluation struct {
 	Risks          []string         `json:"risks"`
 	Recommendation string           `json:"recommendation"` // apply, review, ignore
 	Reason         string           `json:"reason"`
-	CreatedAt      time.Time        `json:"created_at"`
+	// Analysis is the model's richer, prose assessment (markdown). It is
+	// separate from Reason so the human view can render it as its own section
+	// instead of appending it to a one-line reason.
+	Analysis  string    `json:"analysis,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Proposal struct {
