@@ -165,7 +165,7 @@ func memoryTools(c *Core) []*Tool {
 				return okResult(map[string]any{"ok": true}), err
 			}},
 		{Name: "search_learned_preferences", Permission: PermRead, ReadOnly: true,
-			Description: "Retrieve learned observations (advisory only).",
+			Description: "Retrieve what Scout has learned: explicit feedback, the computed preference model, and any inferred patterns (all advisory).",
 			ArgsHint:    `{}`,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
 				rows, err := c.DB.DB.Query(`SELECT pattern,signal,created_at FROM learned_observations ORDER BY created_at DESC LIMIT 50`)
@@ -173,13 +173,23 @@ func memoryTools(c *Core) []*Tool {
 					return "", err
 				}
 				defer rows.Close()
-				out := []map[string]string{}
+				observations := []map[string]string{}
 				for rows.Next() {
 					var p, s, t string
 					rows.Scan(&p, &s, &t)
-					out = append(out, map[string]string{"pattern": p, "signal": s, "at": t})
+					observations = append(observations, map[string]string{"pattern": p, "signal": s, "at": t})
 				}
-				return okResult(out), nil
+				result := map[string]any{"observations": observations}
+				if pm := c.PreferenceModel(); pm != nil {
+					fav, dis := pm.Top(10)
+					result["preference_model"] = map[string]any{
+						"positive_samples": pm.Positive,
+						"negative_samples": pm.Negative,
+						"favored_terms":    fav,
+						"disfavored_terms": dis,
+					}
+				}
+				return okResult(result), nil
 			}},
 	}
 }

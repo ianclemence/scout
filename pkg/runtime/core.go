@@ -226,6 +226,11 @@ func (c *Core) Analyze(ctx context.Context, id string, eng *agent.Engine) (*doma
 	p, _ := c.Profile()
 	f := imat.DeterministicFilter(p, o)
 	ev := imat.HeuristicEvaluate(p, o)
+	// Learned preferences (if any) adjust the deterministic evaluation before
+	// the model sees it, so both paths reflect the user's feedback.
+	if pm := c.PreferenceModel(); pm != nil {
+		pm.Adjust(ev, o)
+	}
 	if eng != nil && eng.LLM != nil {
 		evs, _ := c.Evidence(6)
 		ev = eng.EnrichEvaluation(p, o, ev, evs)

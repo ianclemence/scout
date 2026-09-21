@@ -18,7 +18,10 @@ pkg/
                      per provider (reasoning_effort, thinking blocks, think flag)
   registry/          model catalog: builtins + /models discovery + Ollama tags
                      + SQLite cache + offline fallback
-  profile/           CV import → structured profile (source of truth) + evidence
+  profile/           CV import → structured profile (name, summary, experience,
+                     education, projects, links) + citable evidence
+  preference/        learned term-level preferences from explicit feedback
+  eval/              golden decision suite + agent-trajectory checks
   match/             deterministic filters, fingerprints, heuristic dimensions, risks
   agent/             core agent instructions + proposal/match LLM helpers
   runtime/           SCOUT CORE: services, typed tool registry, permissions,

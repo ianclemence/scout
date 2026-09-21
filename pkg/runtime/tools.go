@@ -80,6 +80,10 @@ func (c *Core) Tools() []*Tool {
 		return d
 	}
 	tools := []*Tool{
+		{Name: "list_tools", Permission: PermRead, ReadOnly: true, Description: "List every available tool with a one-line description. Use when the offered catalog is missing what you need.", ArgsHint: "{}",
+			Handler: func(ctx context.Context, args map[string]any) (string, error) {
+				return okResult(map[string]any{"catalog": c.FullToolCatalog()}), nil
+			}},
 		{Name: "get_profile", Permission: PermRead, Description: "Show the structured professional profile.", ArgsHint: "{}", ReadOnly: true,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
 				p, err := c.Profile()

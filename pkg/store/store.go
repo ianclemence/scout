@@ -153,4 +153,7 @@ CREATE TABLE IF NOT EXISTS research_cache (key TEXT PRIMARY KEY, kind TEXT, data
 CREATE TABLE IF NOT EXISTS tool_audit (id TEXT PRIMARY KEY, created_at TEXT, tool TEXT, source TEXT, opportunity_id TEXT, permission TEXT, approved_action_id TEXT, success INTEGER, summary TEXT);
 CREATE TABLE IF NOT EXISTS learned_observations (id TEXT PRIMARY KEY, pattern TEXT, signal TEXT, created_at TEXT);
 `},
+	{6, `
+CREATE TABLE IF NOT EXISTS trajectories (id TEXT PRIMARY KEY, created_at TEXT, request TEXT, tools TEXT, turns INTEGER, final TEXT, error TEXT);
+`},
 }

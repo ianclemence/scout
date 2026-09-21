@@ -65,7 +65,7 @@ func HeuristicEvaluate(p *domain.ProfessionalProfile, o *domain.Opportunity) *do
 			continue
 		}
 		seen[s] = true
-		if strings.Contains(lowDesc, s) {
+		if containsTerm(lowDesc, s) {
 			skillHits++
 			matched = append(matched, s)
 		}
@@ -86,7 +86,15 @@ func HeuristicEvaluate(p *domain.ProfessionalProfile, o *domain.Opportunity) *do
 		rec = "apply"
 	}
 	budget := "acceptable"
-	if p.MinProjectBudget > 0 && o.BudgetMax > 0 && o.BudgetMax < p.MinProjectBudget {
+	switch {
+	case o.BudgetType == "hourly":
+		// Hourly work is compared against the hourly floor; the project-budget
+		// floor only applies to fixed-price work.
+		if p.MinHourlyRate > 0 && o.HourlyRateMax > 0 && o.HourlyRateMax < p.MinHourlyRate {
+			budget = "unacceptable"
+			rec = "ignore"
+		}
+	case p.MinProjectBudget > 0 && o.BudgetMax > 0 && o.BudgetMax < p.MinProjectBudget:
 		budget = "unacceptable"
 		rec = "ignore"
 	}
@@ -104,6 +112,35 @@ func HeuristicEvaluate(p *domain.ProfessionalProfile, o *domain.Opportunity) *do
 		Reason:         fmt.Sprintf("skills=%s risks=%d", skillRating, len(risks)),
 		CreatedAt:      time.Now().UTC(),
 	}
+}
+
+// containsTerm reports whether term occurs in hay as a whole token, not as a
+// substring of a longer word. This prevents "go" matching "google" and
+// "react" matching "reactive" — a real source of false skill hits.
+func containsTerm(hay, term string) bool {
+	if term == "" {
+		return false
+	}
+	from := 0
+	for from <= len(hay)-len(term) {
+		i := strings.Index(hay[from:], term)
+		if i < 0 {
+			return false
+		}
+		i += from
+		end := i + len(term)
+		leftOK := i == 0 || !isWordByte(hay[i-1])
+		rightOK := end >= len(hay) || !isWordByte(hay[end])
+		if leftOK && rightOK {
+			return true
+		}
+		from = i + 1
+	}
+	return false
+}
+
+func isWordByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
 }
 
 func budgetDetail(o *domain.Opportunity, p *domain.ProfessionalProfile) string {

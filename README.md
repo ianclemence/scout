@@ -9,7 +9,7 @@
 
 Scout runs the job hunt so you don't have to live in the feed:
 
-- **It watches the market for you.** "Find Go + AI backend work on Upwork under my rates." Scout searches, filters out the noise, and keeps a shortlist.
+- **It watches the market for you.** "Find React Native mobile work on Upwork under my rates." Scout searches, filters out the noise, and keeps a shortlist.
 - **It tells you why something fits.** Not a score — skills matched, budget fit, scope clarity, client signals, risks, and the exact resume material behind each claim.
 - **It drafts the proposal.** Grounded in your real projects, tailored to the posting, with questions for the client. Never generic, never invented experience.
 - **It asks before anything consequential.** Submitting, spending Connects, messaging a client, accepting an offer — every one waits for your explicit approval, with the full context to decide.
@@ -121,8 +121,8 @@ Back in the session:
 
 ```text
 scout› /profile
-Profile: Ian Clemence — Senior Go Developer
-Skills: go, postgres, docker, react, …
+Profile: Ian Clemence — Full-Stack Developer
+Skills: react, react native, typescript, node.js, python, …
 Resume items: 1 (latest: cv_section:my-cv.txt)
 ```
 
@@ -133,14 +133,14 @@ Your CV becomes the record Scout reasons from. The structured profile is the sou
 Copy a real posting into a file — the example below uses Upwork, but any job description works (full text matters — Scout reads the whole thing, not just keywords):
 
 ```bash
-scout opportunity add --title "Go SaaS API backend" \
-  --description-file job.txt --skills "go, postgres, docker"
+scout opportunity add --title "React Native healthcare app" \
+  --description-file job.txt --skills "react native, typescript, expo, node.js"
 ```
 
 ```text
 scout› /opportunities
 OPPORTUNITIES (1)
- 1  Go SaaS API backend
+ 1  React Native healthcare app
     opp-… · discovered
 ```
 
@@ -150,7 +150,7 @@ OPPORTUNITIES (1)
 scout› /analyze 1
 Filter: pass=true (passed deterministic gates)
 Recommendation: review — skills=strong risks=1
-  skills       strong       10 profile terms matched: go, docker, postgres, …
+  skills       strong       10 profile terms matched: react, react native, typescript, …
   budget       acceptable   fixed 0–0 vs min 0
   scope        weak         heuristic: description length
   risks        1 signal     very short description — scope unclear
@@ -163,7 +163,7 @@ Or conversationally: *"Why does this one fit me, and what's the weakest part of 
 ```text
 scout› /proposal 1
 PROPOSAL DRAFT
-[tailored draft grounded in your Go/Postgres/Docker background,
+[tailored draft grounded in your React Native/TypeScript background,
  ending with sharp client questions]
 Based on: <ids>   Rate 0 hourly
 ```
@@ -274,6 +274,9 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `scout integrations [list\|test\|login\|add\|token\|enable\|disable\|remove]` | Work sources and MCP connectors |
 | `scout sessions [list]` | Persistent sessions |
 | `scout skills [query]` / `scout tools` | Skill workflows and typed tool registry |
+| `scout feedback <id> <signal> [note]` | Record an explicit preference signal |
+| `scout learn` | Show the learned preference model |
+| `scout eval` | Run the evaluation suite (regression gate) |
 | `scout doctor` | Diagnostics (DB, providers, Ollama, disk, version, service) |
 | `scout backup <file>` / `scout restore <file>` | Data backup and restore |
 | `scout update [--dry-run] [--force]` | Self-update |

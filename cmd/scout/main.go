@@ -52,6 +52,12 @@ func main() {
 		err = withCore(func(c *runtime.Core) error { return loginCmd(c, rest) })
 	case "logout":
 		err = withCore(func(c *runtime.Core) error { return logoutCmd(c, rest) })
+	case "feedback":
+		err = withCore(func(c *runtime.Core) error { return feedbackCmd(c, rest) })
+	case "learn":
+		err = withCore(func(c *runtime.Core) error { return learnCmd(c, rest) })
+	case "eval":
+		err = withCore(func(c *runtime.Core) error { return evalCmd(c, rest) })
 	case "integrations", "sources":
 		err = withCore(func(c *runtime.Core) error { return integrationsCmd(c, rest) })
 	case "sessions":
@@ -113,6 +119,10 @@ func usage() {
   scout login <provider>       store API key (masked prompt)
   scout integrations [list|test|login|add|token|enable|disable|remove]
                          work sources and MCP connectors (alias: sources)
+  scout feedback <id> <signal> [note]
+                         record an explicit preference signal
+  scout learn            show what Scout has learned from feedback
+  scout eval             run the evaluation suite (exits non-zero on failure)
   scout sessions [list]        persistent sessions
   scout skills [query]         agent skill registry
   scout tools                  tool registry with permission classes

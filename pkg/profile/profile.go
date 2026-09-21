@@ -26,25 +26,62 @@ func ImportDocument(db *store.Store, filename string, raw []byte) (*domain.Profe
 	if err != nil {
 		return nil, nil, err
 	}
+	facts := ExtractProfile(text)
 	p := &domain.ProfessionalProfile{
 		ID:            "default",
-		DisplayName:   guessName(text),
-		Skills:        guessSkills(text),
-		Technologies:  guessSkills(text),
+		DisplayName:   facts.Name,
+		Title:         facts.Title,
+		Summary:       facts.Summary,
+		Skills:        facts.Skills,
+		Technologies:  facts.Skills,
+		Experience:    facts.Experience,
+		Education:     facts.Education,
+		GitHubURL:     facts.Links.GitHub,
+		LinkedInURL:   facts.Links.LinkedIn,
+		WebsiteURL:    facts.Links.Website,
 		ProposalStyle: "concise",
 		UpdatedAt:     time.Now().UTC(),
 	}
-	p.Experience = guessExperience(text)
 	ev := []domain.Evidence{{
 		ID: newID(), Kind: "cv_section", Reference: filename,
 		Content: truncate(text, 8000), Source: "upload", CreatedAt: time.Now().UTC(),
 	}}
+	// Structured, citable items extracted verbatim from the CV. These are
+	// evidence (what the user's document says), never generated facts.
+	for i, x := range facts.Experience {
+		if x.Title == "" && x.Description == "" {
+			continue
+		}
+		ev = append(ev, domain.Evidence{
+			ID:        newID(),
+			Kind:      "cv_experience",
+			Reference: strings.TrimSpace(x.Company + " — " + x.Title + " " + x.Period),
+			Content:   truncate(x.Description, 1200),
+			Source:    "upload",
+			CreatedAt: time.Now().UTC(),
+		})
+		_ = i
+	}
+	for _, x := range facts.Education {
+		ev = append(ev, domain.Evidence{
+			ID: newID(), Kind: "cv_education",
+			Reference: strings.TrimSpace(x.School + " — " + x.Degree + " " + x.Year),
+			Content:   strings.TrimSpace(x.School + " — " + x.Degree + " " + x.Year),
+			Source:    "upload", CreatedAt: time.Now().UTC(),
+		})
+	}
+	for _, x := range facts.Projects {
+		ev = append(ev, domain.Evidence{
+			ID: newID(), Kind: "cv_project",
+			Reference: x.Name,
+			Content:   strings.TrimSpace(strings.Join(x.Stack, ", ") + ". " + x.Description),
+			Source:    "upload", CreatedAt: time.Now().UTC(),
+		})
+	}
 	if err := Save(db, p); err != nil {
 		return nil, nil, err
 	}
 	for _, e := range ev {
-		b, _ := json.Marshal(e)
-		_ = b
 		_, _ = db.DB.Exec(`INSERT OR REPLACE INTO evidence(id,kind,reference,content,source,created_at) VALUES(?,?,?,?,?,?)`,
 			e.ID, e.Kind, e.Reference, e.Content, e.Source, e.CreatedAt.Format(time.RFC3339))
 	}
@@ -245,10 +282,6 @@ func isASCIIWord(w string) bool {
 		return false
 	}
 	return true
-}
-
-func guessExperience(text string) []domain.Experience {
-	return nil // user edits in UI; imports stay as evidence
 }
 
 func truncate(s string, n int) string {

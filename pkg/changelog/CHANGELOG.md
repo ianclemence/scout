@@ -3,6 +3,37 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.11.0] - 2026-09-21
+
+Grounding, learning, and evaluation release.
+
+- **Structured CV extraction.** Import now parses a resume deterministically
+  into name, summary, skills, experience (company/title/period/bullets),
+  education, projects, and contact links — all verbatim from the document. The
+  agent gets citable `cv_experience` / `cv_education` / `cv_project` evidence
+  instead of one raw blob, so proposals are grounded and matching is no longer
+  keyword-only. Nothing is invented: uncertain text is left out.
+- **Learned preferences.** Scout learns term-level preferences from the user's
+  explicit feedback and notes (`scout feedback`, `/feedback`), adjusts
+  deterministic evaluations (an explainable `learned_preference` dimension, and
+  upgrade/downgrade of the recommendation), and injects a short, explicit
+  "learned preferences" line into the model context. `scout learn` shows
+  exactly what was learned. This is model-independent and needs no training.
+- **Evaluation harness.** `scout eval` runs a golden decision suite (strong,
+  weak, partial, missing-info, suspicious, keyword-trap, budget-floor,
+  learned-preference) that adapts to the real profile, plus agent-trajectory
+  checks (bounded tool use, recovery, final answer). It exits non-zero on
+  failure so it can gate a release.
+- **Two real matching fixes surfaced by eval:** skill terms now match on word
+  boundaries (`go` no longer matches `google`), and hourly rates are compared
+  against the hourly floor instead of the project-budget floor.
+- **Task-scoped tool catalog.** The agent is sent only the tools relevant to
+  the request (plus a core set and `list_tools`), cutting the per-turn tool
+  catalog from ~4.9 KB to ~1.2 KB (~75%).
+- **Trajectory logging.** Every agent turn records its request, tools, turn
+  count, final answer, and error — the raw material for evaluation and future
+  learning.
+
 ## [0.10.0] - 2026-09-21
 
 Upwork adapter (live discovery).

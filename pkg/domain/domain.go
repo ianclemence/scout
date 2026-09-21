@@ -40,6 +40,7 @@ type Experience struct {
 	ID           string   `json:"id"`
 	Title        string   `json:"title"`
 	Company      string   `json:"company,omitempty"`
+	Period       string   `json:"period,omitempty"`
 	Description  string   `json:"description,omitempty"`
 	Technologies []string `json:"technologies,omitempty"`
 	URL          string   `json:"url,omitempty"`
