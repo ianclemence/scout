@@ -104,7 +104,7 @@ This keeps the Scout MCP server listening on `127.0.0.1:3210` across reboots (wi
 scout
 ```
 
-A full-screen session opens: committed conversation prints into your terminal's scrollback (native scrolling keeps everything), while the live dock at the bottom shows the streaming preview, a bordered prompt box, and a two-line footer — session state left, `(local|cloud) provider/model` right, key hints below. `You` and `Scout` messages are labeled and styled distinctly; assistant markdown renders cleanly; approvals render as prominent risk cards. Type `/` for the command palette, `Ctrl+L` for the registry-backed model picker, `Esc` to abort a turn.
+A full-screen session opens on a centered Scout welcome card. Committed conversation prints into your terminal's scrollback (with Today/Yesterday dividers), while the live dock shows the streaming preview, a rule-framed composer, and a two-line footer — session state left, `(local|cloud) provider/model · thinking` right, key hints below. While a turn runs, the composer's top rule carries the live activity (`── ▖ Searching … ──`, `Analyzing`, `Drafting`, `Reading`, `Working`) with elapsed time. `You` messages render in a bar panel (never markdown-mangled); `👷 Scout` answers render full markdown including tables; tool completions collapse to `✓` lines. New pending approvals raise an inline `△ Approval required` card with risk badge: `1 approve · 2 reject · esc leaves pending`. Type `/` for the command palette, `Ctrl+L` for the registry-backed model picker, `Esc` to abort a turn.
 
 ```text
 scout› /status

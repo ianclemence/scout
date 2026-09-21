@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
@@ -13,6 +14,7 @@ import (
 	"github.com/ianclemence/scout/internal/isession"
 	"github.com/ianclemence/scout/internal/llm"
 	"github.com/ianclemence/scout/internal/runtime"
+	"github.com/ianclemence/scout/internal/version"
 )
 
 type entryKind int
@@ -29,12 +31,27 @@ const (
 type entry struct {
 	kind entryKind
 	text string
+	dur  time.Duration
+	at   time.Time
 }
 
 // evMsg carries runtime agent events into Update.
 type evMsg struct{ ev runtime.Event }
 
-type turnDoneMsg struct{ final string }
+type turnDoneMsg struct {
+	final string
+	dur   time.Duration
+}
+
+type spinTickMsg struct{}
+
+// pendingApproval drives the inline approval card.
+type pendingApproval struct {
+	id    string
+	title string
+	risk  string
+	sel   int // 0 approve, 1 reject
+}
 
 type selector struct {
 	title string
@@ -52,33 +69,38 @@ type model struct {
 	st        *isession.ReplState
 	ta        textarea.Model
 	prog      *tea.Program
-	entries   []entry // committed this view (also flushed to scrollback)
+	entries   []entry
 	width     int
 	height    int
 	ready     bool
 	working   bool
+	turnFrom  time.Time
 	stream    strings.Builder
 	toolLine  string
+	toolName  string
 	tools     int
 	turns     int
+	spin      int
 	cancel    context.CancelFunc
 	sel       *selector
 	selMode   string // palette, model
 	palFilter string
+	approval  *pendingApproval
+	lastDay   string
+	welcomed  bool
 	quitting  bool
 }
 
 func initialModel(st *isession.ReplState) *model {
 	ta := textarea.New()
 	ta.Placeholder = ""
-	ta.Prompt = "› "
-	// No cursor-line background band: the prompt box stays visually clean.
+	ta.Prompt = ""
+	ta.CharLimit = 8000
+	ta.SetWidth(80)
+	ta.SetHeight(1)
+	ta.ShowLineNumbers = false
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
-	ta.CharLimit = 4000
-	ta.SetWidth(80)
-	ta.SetHeight(3)
-	ta.ShowLineNumbers = false
 	ta.Focus()
 	return &model{st: st, ta: ta}
 }
@@ -93,8 +115,21 @@ func Run(st *isession.ReplState) error {
 }
 
 func (m *model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(textarea.Blink, m.welcomeCmd())
 }
+
+func (m *model) welcomeCmd() tea.Cmd {
+	return func() tea.Msg {
+		n, _ := m.st.Core.SessionMessageCount(m.st.Sess.ID)
+		if n == 0 && !m.welcomed {
+			m.welcomed = true
+			return welcomeMsg{}
+		}
+		return nil
+	}
+}
+
+type welcomeMsg struct{}
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -102,26 +137,128 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.ready = true
-		m.ta.SetWidth(msg.Width - 6)
+		m.ta.SetWidth(msg.Width)
+		m.layoutComposer()
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 	case evMsg:
 		return m.handleEvent(msg.ev)
 	case turnDoneMsg:
-		nm, cmd := m.finishTurn(msg.final)
+		nm, cmd := m.finishTurn(msg.final, msg.dur)
 		return nm, cmd
+	case spinTickMsg:
+		if m.working {
+			m.spin++
+			return m, tickSpin()
+		}
+		return m, nil
+	case welcomeMsg:
+		return m, tea.Println(m.welcomeCard())
 	}
-	if m.sel == nil {
+	if m.sel == nil && m.approval == nil {
 		var cmd tea.Cmd
 		m.ta, cmd = m.ta.Update(msg)
+		m.layoutComposer()
 		return m, cmd
 	}
 	return m, nil
 }
 
+func tickSpin() tea.Cmd {
+	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return spinTickMsg{} })
+}
+
+// layoutComposer grows the composer with content, capped like a real editor.
+func (m *model) layoutComposer() {
+	rows := 1
+	w := m.width
+	if w < 20 {
+		w = 20
+	}
+	for _, line := range strings.Split(m.ta.Value(), "\n") {
+		n := visualRows(line, w)
+		rows += n
+	}
+	_ = rows
+	n := composerRows(m.ta.Value(), w)
+	m.ta.SetHeight(n)
+}
+
+func composerRows(v string, w int) int {
+	n := 0
+	for _, line := range strings.Split(v, "\n") {
+		n += visualRows(line, w)
+	}
+	if n < 1 {
+		n = 1
+	}
+	if cap := composerCap(w); n > cap {
+		n = cap
+	}
+	return n
+}
+
+func composerCap(w int) int {
+	_ = w
+	return 7
+}
+
+func visualRows(s string, w int) int {
+	if w < 1 {
+		w = 1
+	}
+	if s == "" {
+		return 1
+	}
+	rows, col := 1, 0
+	for _, word := range strings.Fields(s) {
+		ww := len([]rune(word))
+		if col == 0 {
+			for ww > w {
+				rows++
+				ww -= w
+			}
+			col = ww
+			continue
+		}
+		if col+1+ww > w {
+			rows++
+			col = 0
+			for ww > w {
+				rows++
+				ww -= w
+			}
+			col = ww
+			continue
+		}
+		col += 1 + ww
+	}
+	return rows
+}
+
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Selector open: navigation keys belong to it.
+	if m.approval != nil {
+		switch msg.String() {
+		case "1":
+			nm, cmd := m.resolveApproval(true)
+			return nm, cmd
+		case "2":
+			nm, cmd := m.resolveApproval(false)
+			return nm, cmd
+		case "left", "right", "tab":
+			m.approval.sel = 1 - m.approval.sel
+			return m, nil
+		case "enter":
+			nm, cmd := m.resolveApproval(m.approval.sel == 0)
+			return nm, cmd
+		case "esc":
+			m.approval = nil
+			return m, nil
+		default:
+			return m, nil
+		}
+	}
 	if m.sel != nil {
 		switch msg.String() {
 		case "esc", "ctrl+c":
@@ -138,7 +275,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.sel.cur++
 			}
 			return m, nil
-		case "enter":
+		case "enter", "tab":
 			nm, cmd := m.pickSelected()
 			return nm, cmd
 		default:
@@ -179,6 +316,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		line := strings.TrimSpace(m.ta.Value())
 		m.ta.Reset()
+		m.layoutComposer()
 		if line == "" {
 			return m, nil
 		}
@@ -191,13 +329,11 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
-	// Typing "/" first opens the palette.
-	if strings.HasPrefix(strings.TrimSpace(m.ta.Value()), "/") && m.ta.Value() != "" {
-		v := strings.TrimSpace(m.ta.Value())
-		if !strings.Contains(v, " ") && len(v) <= 12 {
-			m.openPalette(strings.TrimPrefix(v, "/"))
-			m.ta.Reset()
-		}
+	m.layoutComposer()
+	if v := strings.TrimSpace(m.ta.Value()); strings.HasPrefix(v, "/") && !strings.Contains(v, " ") && len(v) <= 14 {
+		m.openPalette(strings.TrimPrefix(v, "/"))
+		m.ta.Reset()
+		m.layoutComposer()
 	}
 	return m, cmd
 }
@@ -211,7 +347,7 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 	err := isession.Dispatch(st, line)
 	st.Out = prev
 	if err != nil {
-		m.println(entry{kind: eErr, text: err.Error()})
+		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
 		return m, m.flushCmds()
 	}
 	if s := strings.TrimRight(out.String(), "\n"); s != "" {
@@ -219,7 +355,7 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 		if strings.HasPrefix(line, "approvals") {
 			kind = eApproval
 		}
-		m.println(entry{kind: kind, text: s})
+		m.println(entry{kind: kind, text: s, at: time.Now()})
 	}
 	return m, m.flushCmds()
 }
@@ -229,14 +365,16 @@ func (m *model) println(e entry) *model {
 	return m
 }
 
-// flushCmds prints committed entries to the terminal scrollback and clears
-// the buffer. The transcript lives in scrollback; the live view only shows
-// the streaming preview, composer, and footer.
+// flushCmds prints committed entries (with day dividers) to scrollback.
 func (m *model) flushCmds() tea.Cmd {
 	var cmds []tea.Cmd
 	for _, e := range m.entries {
+		for _, d := range m.dividerFor(e) {
+			d := d
+			cmds = append(cmds, tea.Println(d))
+		}
 		e := e
-		cmds = append(cmds, tea.Println(renderEntry(e)))
+		cmds = append(cmds, tea.Println(m.renderEntry(e)))
 	}
 	m.entries = nil
 	if len(cmds) == 0 {
@@ -245,25 +383,39 @@ func (m *model) flushCmds() tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// startTurn prints the user message and launches the agent goroutine.
+func (m *model) dividerFor(e entry) []string {
+	if e.at.IsZero() {
+		return nil
+	}
+	d := dayLabel(e.at)
+	if d == "" || d == m.lastDay {
+		return nil
+	}
+	m.lastDay = d
+	return []string{m.renderDayDivider(d)}
+}
+
+// startTurn launches the agent goroutine.
 func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 	eng := m.st.Core.EngineFor(m.st.Sess.Provider, m.st.Sess.Model)
 	if eng.LLM == nil {
-		m.println(entry{kind: eUser, text: line})
-		m.println(entry{kind: eErr, text: "No model configured. /login <provider> or /model ollama/<model>."})
+		m.println(entry{kind: eUser, text: line, at: time.Now()})
+		m.println(entry{kind: eErr, text: "No model configured. /login <provider> or /model ollama/<model>.", at: time.Now()})
 		return m, m.flushCmds()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
 	m.working = true
+	m.turnFrom = time.Now()
 	m.stream.Reset()
 	m.toolLine = ""
+	m.toolName = ""
 	m.tools = 0
 	m.st.History = append(m.st.History, llm.Message{Role: "user", Content: line})
 	_ = csession.AppendMessages(m.st.Core.DB, m.st.Sess.ID, []csession.Message{{Role: "user", Content: line}})
 	msgs := append([]llm.Message{}, m.st.History...)
 	prog := m.prog
-	printUser := tea.Println(renderEntry(entry{kind: eUser, text: line}))
+	printUser := tea.Println(m.renderEntry(entry{kind: eUser, text: line, at: time.Now()}))
 	go func() {
 		var final strings.Builder
 		_, _ = m.st.Core.RunAgent(ctx, eng, msgs, m.st.Sess.Thinking, func(ev runtime.Event) {
@@ -272,9 +424,9 @@ func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 			}
 			prog.Send(evMsg{ev: ev})
 		})
-		prog.Send(turnDoneMsg{final: final.String()})
+		prog.Send(turnDoneMsg{final: final.String(), dur: time.Since(m.turnFrom)})
 	}()
-	return m, printUser
+	return m, tea.Batch(printUser, tickSpin())
 }
 
 func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
@@ -283,20 +435,21 @@ func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 		m.stream.WriteString(ev.Text)
 	case "tool_start":
 		m.toolLine = ev.Name + " " + ev.Args
+		m.toolName = ev.Name
 		m.tools++
 	case "tool_end":
 		m.toolLine = ""
+		m.toolName = ""
 	case "error":
-		m = m.println(entry{kind: eErr, text: ev.Err.Error()})
+		m.println(entry{kind: eErr, text: ev.Err.Error(), at: time.Now()})
 	}
 	return m, nil
 }
 
-func (m *model) finishTurn(final string) (tea.Model, tea.Cmd) {
+func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd) {
 	m.working = false
 	m.cancel = nil
 	if strings.TrimSpace(final) == "" {
-		// Interrupted/failed with no answer: drop the dangling user turn.
 		if n := len(m.st.History); n > 0 {
 			m.st.History = m.st.History[:n-1]
 		}
@@ -311,32 +464,39 @@ func (m *model) finishTurn(final string) (tea.Model, tea.Cmd) {
 		m.st.History = m.st.History[len(m.st.History)-40:]
 	}
 	m.turns++
-	m.println(entry{kind: eScout, text: final})
-	// User message persistence (assistant persisted above).
+	m.println(entry{kind: eScout, text: final, dur: dur, at: time.Now()})
 	csession.Touch(m.st.Core.DB, m.st.Sess.ID, m.st.Sess.Provider, m.st.Sess.Model)
-	// Surface new approvals without claiming execution.
-	if pend, _ := m.st.Core.PendingApprovals(); len(pend) > 0 {
-		m.println(entry{kind: eApproval, text: fmt.Sprintf("%d action(s) awaiting approval — /approvals to review.", len(pend))})
+	flush := m.flushCmds()
+	// Inline approval card for newly created pending actions.
+	if pend, _ := m.st.Core.PendingApprovals(); len(pend) > 0 && m.approval == nil {
+		p := pend[0]
+		m.approval = &pendingApproval{id: p.ID, title: p.ActionType + " → " + p.Target, risk: p.RiskLevel}
 	}
 	m.stream.Reset()
-	return m, m.flushCmds()
+	return m, flush
 }
 
-func renderEntry(e entry) string {
-	switch e.kind {
-	case eUser:
-		return styleUserLabel.Render("You") + "\n" + e.text
-	case eScout:
-		return styleScout.Render("👷 Scout") + "\n" + RenderMarkdown(e.text)
-	case eTool:
-		return styleTool.Render("◐ " + e.text)
-	case eNotice:
-		return styleNotice.Render(e.text)
-	case eApproval:
-		return styleRiskHigh.Render("ACTION REQUIRES APPROVAL") + "\n" + e.text
-	case eErr:
-		return styleErr.Render("error: " + e.text)
-	default:
-		return e.text
+// resolveApproval settles the inline card: true = approve.
+func (m *model) resolveApproval(approve bool) (tea.Model, tea.Cmd) {
+	a := m.approval
+	m.approval = nil
+	if a == nil {
+		return m, nil
 	}
+	status := "rejected"
+	verb := "rejected"
+	if approve {
+		status = "approved"
+		verb = "approved"
+	}
+	if err := m.st.Core.SetApprovalStatus(a.id, status); err != nil {
+		return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: err.Error()}))
+	}
+	return m, tea.Println(renderEntryStatic(entry{kind: eNotice, text: fmt.Sprintf("%s %s.", a.title, verb)}))
 }
+
+func renderEntryStatic(e entry) string {
+	return (&model{width: 80}).renderEntry(e)
+}
+
+var _ = version.Version

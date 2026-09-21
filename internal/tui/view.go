@@ -3,14 +3,17 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-// View renders only the live dock: streaming preview, prompt box (or
-// selector), and footer. Committed transcript lines go to the terminal's
-// scrollback, so native scrolling reaches every previous message.
+// Spinner cube, rotating while a turn runs.
+var spinnerFrames = []string{"▖", "▘", "▝", "▗"}
+
+// View renders only the live dock: streaming preview, composer (or approval
+// card), palette/modal, footer. Committed transcript lives in scrollback.
 func (m *model) View() string {
 	if m.quitting {
 		return ""
@@ -19,46 +22,218 @@ func (m *model) View() string {
 		return "starting Scout…"
 	}
 	var b strings.Builder
-	b.WriteString(m.previewLine())
+	b.WriteString(m.dockPreview())
 	b.WriteString("\n")
-	if m.sel != nil {
-		b.WriteString(m.selectorView())
+	if m.approval != nil {
+		b.WriteString(m.approvalCard())
 	} else {
 		b.WriteString(m.promptBox())
 	}
 	b.WriteString("\n")
+	if m.sel != nil {
+		b.WriteString(m.selectorView())
+		b.WriteString("\n")
+	}
 	b.WriteString(m.footerStats())
 	b.WriteString("\n")
 	b.WriteString(m.footerKeys())
 	return b.String()
 }
 
-// previewLine shows the tail of the streaming reply with a caret, or the
-// active tool. Blank when idle so the dock keeps a stable height.
-func (m *model) previewLine() string {
+// dockPreview is one reserved line: streaming tail with caret, else blank.
+func (m *model) dockPreview() string {
+	w := m.width
+	if w < 10 {
+		w = 10
+	}
 	if !m.working {
 		return ""
 	}
+	line := ""
 	if m.toolLine != "" {
-		return styleTool.Render("◐ " + truncate(m.toolLine, m.width-4))
+		line = "◐ " + m.toolLine
+	} else if m.stream.Len() > 0 {
+		flat := strings.ReplaceAll(m.stream.String(), "\n", " ") + "▍"
+		lines := wrap(flat, w)
+		line = lines[len(lines)-1]
+	} else {
+		line = "▍"
 	}
-	s := strings.ReplaceAll(m.stream.String(), "\n", " ") + "▍"
-	lines := wrap(s, m.width-2)
-	if len(lines) == 0 {
-		return "▍"
-	}
-	return styleDim.Render(lines[len(lines)-1])
+	return styleTool.Render(truncate(line, w))
 }
 
+// promptBox is the rule-framed composer: top rule carries live status.
 func (m *model) promptBox() string {
-	title := "› ask"
-	if m.working {
-		title = "◐ working… (esc aborts)"
+	var b strings.Builder
+	b.WriteString(m.composerTopRule())
+	for _, ln := range strings.Split(m.ta.View(), "\n") {
+		b.WriteString("\n")
+		b.WriteString(ln)
 	}
-	box := styleBox.Render(m.ta.View())
-	_ = title
-	return box
+	b.WriteString("\n")
+	b.WriteString(stylePromptBar.Render(strings.Repeat("─", m.width)))
+	return b.String()
 }
+
+// composerTopRule is `── <spinner> <activity> … ──` while working, plain idle.
+func (m *model) composerTopRule() string {
+	w := m.width
+	if w < 10 {
+		w = 10
+	}
+	if !m.working {
+		return stylePromptBar.Render(strings.Repeat("─", w))
+	}
+	status := m.activityWord()
+	sw := lipgloss.Width(status)
+	if sw+6 > w {
+		status = cellTruncate(status, w-6)
+		sw = lipgloss.Width(status)
+	}
+	fill := w - 3 - sw - 1
+	if fill < 0 {
+		fill = 0
+	}
+	return stylePromptBar.Render("── ") + styleWorking.Render(status) +
+		stylePromptBar.Render(" "+strings.Repeat("─", fill))
+}
+
+// activityWord names what Scout is doing: the active tool in Scout language.
+func (m *model) activityWord() string {
+	word := "Working"
+	switch m.toolName {
+	case "search_opportunities", "discover_opportunities", "run_discovery":
+		word = "Searching"
+	case "analyze_opportunity", "get_opportunity":
+		word = "Analyzing"
+	case "prepare_proposal":
+		word = "Drafting"
+	case "list_messages", "list_applications", "get_pipeline":
+		word = "Reading"
+	case "get_profile", "list_evidence":
+		word = "Reviewing"
+	}
+	s := fmt.Sprintf("%s %s", spinnerFrames[m.spin%len(spinnerFrames)], word)
+	if d := time.Since(m.turnFrom); d > 0 {
+		s += " · " + formatElapsed(d)
+	}
+	if m.tools > 0 {
+		s += fmt.Sprintf(" · %d tool(s)", m.tools)
+	}
+	return s
+}
+
+func formatElapsed(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
+// ---------- transcript entries ----------
+
+func (m *model) renderEntry(e entry) string {
+	w := m.width
+	if w < 20 {
+		w = 20
+	}
+	tw := w - 2
+	switch e.kind {
+	case eUser:
+		var lines []string
+		lines = append(lines, styleUserName.Render("You"))
+		for _, para := range strings.Split(e.text, "\n") {
+			if strings.TrimSpace(para) == "" {
+				lines = append(lines, styleUserPanel.Render(styleUserBar.Render("┃")))
+				continue
+			}
+			for _, wl := range wrap(para, w-4) {
+				lines = append(lines, styleUserPanel.Render(styleUserBar.Render("┃")+" "+styleUserText.Render(wl)))
+			}
+		}
+		return strings.Join(lines, "\n")
+	case eScout:
+		head := " " + styleAssistantName.Render("👷 Scout · "+m.st.Sess.Provider+"/"+m.st.Sess.Model)
+		if e.dur > 0 {
+			head += styleAssistantMeta.Render(" · " + formatElapsed(e.dur))
+		}
+		return head + "\n" + m.assistantBlock(e.text)
+	case eTool:
+		return styleTool.Render("  ✓ " + cellTruncate(e.text, tw-4))
+	case eNotice:
+		return styleNotice.Render("  · " + cellTruncate(e.text, tw-2))
+	case eApproval:
+		return styleApproval.Render("  ◆ " + cellTruncate(e.text, tw-2))
+	case eErr:
+		var lines []string
+		for _, wl := range wrap(e.text, tw-2) {
+			lines = append(lines, "  "+wl)
+		}
+		return styleErrorCard.Render(strings.Join(lines, "\n"))
+	}
+	return e.text
+}
+
+func (m *model) assistantBlock(text string) string {
+	body := RenderMarkdown(text)
+	lines := strings.Split(body, "\n")
+	for i, ln := range lines {
+		if ln == "" {
+			continue
+		}
+		lines[i] = " " + ln
+	}
+	return strings.Join(lines, "\n")
+}
+
+// ---------- welcome + day dividers ----------
+
+func (m *model) welcomeCard() string {
+	w := m.width
+	if w < 20 {
+		w = 20
+	}
+	center := func(s string) string {
+		var lines []string
+		for _, ln := range strings.Split(s, "\n") {
+			lines = append(lines, lipgloss.PlaceHorizontal(w, lipgloss.Center, ln))
+		}
+		return strings.Join(lines, "\n")
+	}
+	art := styleScoutArt.Render("▓▒░  👷  S C O U T  ░▒▓")
+	tag := styleWelcomeTitle.Render(wrapFirst("Find work worth doing.", minInt(w-2, 64)))
+	cmds := styleWelcomeCmds.Render("  /help      commands & keys\n  /model     switch thinking engine\n  /profile   who Scout thinks you are\n  /sources   work sources & auth")
+	return center(art) + "\n" + center(tag) + "\n\n" + center(cmds)
+}
+
+func dayLabel(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	y, mo, d := t.Date()
+	ny, nmo, nd := time.Now().Date()
+	if y == ny && mo == nmo && d == nd {
+		return "Today"
+	}
+	yy, ymo, yd := time.Now().AddDate(0, 0, -1).Date()
+	if y == yy && mo == ymo && d == yd {
+		return "Yesterday"
+	}
+	return t.Format("2 January 2006")
+}
+
+func (m *model) renderDayDivider(label string) string {
+	w := m.width
+	core := " " + label + " "
+	fill := w - lipgloss.Width(core)
+	if fill < 0 {
+		return styleDayDivider.Render(cellTruncate(label, w))
+	}
+	left := fill / 2
+	return styleDayDivider.Render(strings.Repeat("─", left) + core + strings.Repeat("─", fill-left))
+}
+
+// ---------- footer ----------
 
 func (m *model) footerStats() string {
 	left := m.sessionDigest()
@@ -67,14 +242,19 @@ func (m *model) footerStats() string {
 	if think := m.st.Sess.Thinking; think != "" {
 		right += " · " + think
 	}
-	if pend, _ := m.st.Core.PendingApprovals(); len(pend) > 0 {
-		left += fmt.Sprintf(" · %d approval(s)", len(pend))
+	if m.approval != nil {
+		left = "waiting for you"
+	} else if m.st.Core != nil {
+		if pend, _ := m.st.Core.PendingApprovals(); len(pend) > 0 {
+			left += fmt.Sprintf(" · %d approval(s)", len(pend))
+		}
 	}
-	gap := m.width - lipgloss.Width(left) - lipgloss.Width(right) - 2
-	if gap < 2 {
-		return styleFooter.Render(truncate(left, m.width))
+	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
+	const minGap = 2
+	if lw+minGap+rw <= m.width {
+		return styleFooter.Render(left+strings.Repeat(" ", m.width-lw-rw)) + styleModel(local).Render(right)
 	}
-	return styleFooter.Render(left+strings.Repeat(" ", gap)) + styleModel(local).Render(right)
+	return styleFooter.Render(cellTruncate(left, m.width))
 }
 
 func (m *model) sessionDigest() string {
@@ -97,14 +277,16 @@ func (m *model) modelInfo() (local, prov, mod string) {
 
 func styleModel(local string) lipgloss.Style {
 	if local == "local" {
-		return lipgloss.NewStyle().Foreground(userColor)
+		return styleModelLocal
 	}
-	return lipgloss.NewStyle().Foreground(accent)
+	return styleModelCloud
 }
 
 func (m *model) footerKeys() string {
 	var keys string
 	switch {
+	case m.approval != nil:
+		keys = "1 approve · 2 reject · esc leaves pending"
 	case m.sel != nil:
 		keys = "↑↓ pick · enter select · esc close"
 	case m.working:
@@ -112,10 +294,12 @@ func (m *model) footerKeys() string {
 	default:
 		keys = "/ commands · tab complete · ctrl+l model · esc quit"
 	}
-	return styleDim.Render(truncate(keys, m.width))
+	return styleFooterHint.Render(cellTruncate(keys, m.width))
 }
 
 // ---------- selector (palette + model picker) ----------
+
+const paletteMaxRows = 5
 
 func (m *model) openPalette(filter string) {
 	items := []selItem{}
@@ -130,7 +314,14 @@ func (m *model) openPalette(filter string) {
 }
 
 func (m *model) refilterPalette() {
+	cur := 0
+	if m.sel != nil {
+		cur = m.sel.cur
+	}
 	m.openPalette(m.palFilter)
+	if cur < len(m.sel.items) {
+		m.sel.cur = cur
+	}
 }
 
 func (m *model) openModelPicker() {
@@ -163,31 +354,111 @@ func (m *model) pickSelected() (tea.Model, tea.Cmd) {
 		prov, mod := splitRef(it.value)
 		m.st.Sess.Provider, m.st.Sess.Model = prov, mod
 		saveSessionModel(m.st)
-		return m, tea.Println(styleNotice.Render(fmt.Sprintf("Session model → %s", it.value)))
+		return m, tea.Println(styleNotice.Render("Session model → " + it.value))
 	}
-	// Palette: run the command (strip leading "/").
 	nm, cmd := m.runCommand(strings.TrimPrefix(it.value, "/"))
 	return nm, cmd
 }
 
 func (m *model) selectorView() string {
-	var b strings.Builder
-	b.WriteString(styleScout.Render(m.sel.title))
-	b.WriteString("\n")
-	max := 10
-	start := 0
-	if m.sel.cur >= max {
-		start = m.sel.cur - max + 1
+	w := m.width
+	if w < 20 {
+		w = 20
 	}
-	for i := start; i < len(m.sel.items) && i < start+max; i++ {
-		it := m.sel.items[i]
-		line := fmt.Sprintf("  %-28s %s", it.label, styleDim.Render(it.detail))
-		if i == m.sel.cur {
-			line = styleSelect.Render(fmt.Sprintf("▶ %-28s %s", it.label, it.detail))
+	items := m.sel.items
+	off := 0
+	if len(items) > paletteMaxRows {
+		off = m.sel.cur - paletteMaxRows/2
+		if off+paletteMaxRows > len(items) {
+			off = len(items) - paletteMaxRows
 		}
-		b.WriteString(line + "\n")
+		if off < 0 {
+			off = 0
+		}
 	}
-	return styleBox.Render(strings.TrimRight(b.String(), "\n"))
+	end := off + paletteMaxRows
+	if end > len(items) {
+		end = len(items)
+	}
+	var b strings.Builder
+	if len(items) == 0 {
+		b.WriteString(stylePaletteNoMatch.Render("  No matching commands"))
+		return b.String()
+	}
+	for i := off; i < end; i++ {
+		it := items[i]
+		row := fmt.Sprintf("  %-30s %s", it.label, stylePaletteDesc.Render(cellTruncate(it.detail, w-36)))
+		if i == m.sel.cur {
+			row = stylePaletteSel.Render(fmt.Sprintf("→ %-30s %s", it.label, cellTruncate(it.detail, w-36)))
+		}
+		b.WriteString(row + "\n")
+	}
+	if len(items) > paletteMaxRows {
+		b.WriteString(stylePaletteScroll.Render(fmt.Sprintf("  (%d/%d)", m.sel.cur+1, len(items))))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// ---------- approval card ----------
+
+func (m *model) approvalCard() string {
+	a := m.approval
+	risk := strings.ToLower(a.risk)
+	badge := styleRiskDefault.Render(" " + risk + " ")
+	switch risk {
+	case "high":
+		badge = styleRiskHigh.Render(" ◆ high ")
+	case "medium":
+		badge = styleRiskMid.Render(" ◆ medium ")
+	default:
+		badge = styleRiskLow.Render(" ◆ low ")
+	}
+	bar := styleApprovalBar
+	var b strings.Builder
+	b.WriteString(bar.Render("┃") + " " + styleApprovalTitle.Render("△ Approval required") + "  " + badge)
+	b.WriteString("\n")
+	b.WriteString(bar.Render("┃") + " " + styleAssistant.Render(cellTruncate(a.title, m.width-4)))
+	b.WriteString("\n")
+	labels := []string{"[1] approve", "[2] reject"}
+	row := bar.Render("┃") + " "
+	for i, l := range labels {
+		if i == a.sel {
+			row += styleApprovalSel.Render(" " + l + " ")
+		} else {
+			row += styleApprovalKeys.Render(" " + l + " ")
+		}
+		row += "  "
+	}
+	row += styleNotice.Render("←→ select · enter confirm · esc leaves pending")
+	b.WriteString(row)
+	return b.String()
+}
+
+// ---------- width helpers ----------
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func cellTruncate(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	return truncate(s, w)
+}
+
+func wrapFirst(s string, w int) string {
+	lines := wrap(s, w)
+	if len(lines) == 0 {
+		return ""
+	}
+	return lines[0]
 }
 
 func truncate(s string, n int) string {
