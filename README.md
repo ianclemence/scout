@@ -62,7 +62,7 @@ Reference target: Raspberry Pi 5 (8 GB), 32 GB SD, ARM64. Any Linux ARM64/x86-64
 
 ---
 
-## First-time flow: from clone to first application
+## Quick Start
 
 This is the whole journey on a fresh machine. Each step builds on the last. The worked example uses an Upwork posting — but every step below works the same for any job listing you paste in, and Scout's work-source model is built for more sources than one.
 
@@ -106,13 +106,9 @@ This keeps the Scout MCP server listening on `127.0.0.1:3210` across reboots (wi
 scout
 ```
 
-A full-screen session opens on a centered Scout welcome card. Committed conversation prints into your terminal's scrollback (with Today/Yesterday dividers), while the live dock shows the streaming preview, a rule-framed composer, and a two-line footer — session state left, `(local|cloud) provider/model · thinking` right, key hints below. While a turn runs, the composer's top rule carries the live activity (`── ▖ Searching … ──`, `Analyzing`, `Drafting`, `Reading`, `Working`) with elapsed time. `You` messages render in a bar panel (never markdown-mangled); `👷 Scout` answers render full markdown including tables; tool completions collapse to `✓` lines. New pending approvals raise an inline `△ Approval required` card with risk badge: `1 approve · 2 reject · esc leaves pending`. Type `/` for the command palette, `Ctrl+L` for the registry-backed model picker, `Esc` to abort a turn.
+A full-screen chat session opens. Type `/status` — it shows your provider, model, profile state, and counts. On a fresh install the profile is empty; that's step 5.
 
-```text
-scout› /status
-```
-
-`/status` is the "am I set up?" command: provider, model, profile state, counts. On a fresh install the profile is empty — that's step 5.
+Type `/` for commands, `Ctrl+L` to switch models, `Esc` to stop a running turn.
 
 ### 5. Teach Scout who you are
 
