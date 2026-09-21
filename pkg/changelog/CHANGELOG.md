@@ -3,6 +3,27 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.0] - 2026-09-22
+
+Terminal reading experience: tables, rich text, and a responsive dock.
+
+- **Tables are box-drawn grids.** A markdown table now renders like the
+  opencode CLI: a `┌─┬─┐` top border, a bold header row, a separator between
+  every row, and a `└─┴─┘` bottom, with dim borders. Columns size to their
+  natural width and shrink to fit the terminal, wrapping long cells; a table
+  that cannot form a stable grid falls back to raw markdown instead of
+  overflowing the screen. Widths are measured in display width, not bytes, so
+  em-dashes and other wide characters stay aligned.
+- **The reply is readable as it forms.** The area above the composer is now a
+  stable anchor: one blank row when idle, growing up to a capped block while a
+  reply streams, then collapsing back the instant the turn commits. The dock no
+  longer changes height at the start or end of a turn, so the composer and
+  footer stay put — and you can read the answer while it streams instead of
+  watching it appear all at once.
+- **Markdown syntax is concealed.** Fence markers no longer appear as literal
+  ``` lines, and stacked blank lines are collapsed so code blocks read cleanly
+  without double gaps. Top-level headings stay underlined so hierarchy survives.
+
 ## [0.12.0] - 2026-09-22
 
 Readable streaming and complete answers.
