@@ -3,6 +3,14 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.2] - 2026-09-21
+
+Response rendering release.
+
+- Welcome card no longer injects release notes; use `/changelog`.
+- Model responses word-wrap to the terminal (no truncation); notices, tool, and approval rows wrap too.
+- Markdown roles use Scout brand colors (accent headings/links/bullets, gold emphasis, green code, muted quotes).
+
 ## [0.7.1] - 2026-09-21
 
 Command behavior and parity release.
