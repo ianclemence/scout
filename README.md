@@ -21,12 +21,12 @@ You describe what you want in plain language, in your terminal. Scout does the r
 
 ## Why human control is the point
 
-Most "auto-apply bots" treat your Upwork account like a slot machine: spray proposals, burn Connects, risk your reputation and your account standing. Scout is built on the opposite rule: **the model drafts, the human decides.**
+Most "auto-apply bots" treat your accounts like a slot machine: spray applications, burn credits, risk your reputation and your standing. Scout is built on the opposite rule: **the model drafts, the human decides.**
 
 - **Consequential actions are records, not side effects.** Submit, spend, send, accept, fund — each becomes a pending approval with its risk level. Unknown risk fails closed.
 - **Every claim cites evidence.** A proposal sentence exists because a CV section, project, or portfolio item backs it. Unsupported claims never ship as facts.
 - **Your data stays on your machine.** Profile, opportunities, keys, and history live in SQLite on your hardware. Cloud models are optional intelligence; local Ollama keeps working offline.
-- **Official integrations only.** Scout talks to Upwork through its official MCP — no scraping, no private endpoints, no platform-rule evasion.
+- **Official integrations only.** Scout talks to work sources through their official MCPs/APIs — no scraping, no private endpoints, no platform-rule evasion.
 
 You get leverage on the boring parts. You keep the authority on everything that matters.
 
@@ -60,9 +60,9 @@ Reference target: Raspberry Pi 5 (8 GB), 32 GB SD, ARM64. Any Linux ARM64/x86-64
 
 ---
 
-## First-time flow: from clone to first Upwork application
+## First-time flow: from clone to first application
 
-This is the whole journey on a fresh machine. Each step builds on the last, using an Upwork job as the running example.
+This is the whole journey on a fresh machine. Each step builds on the last. The worked example uses an Upwork posting — but every step below works the same for any job listing you paste in, and Scout's work-source model is built for more sources than one.
 
 ### 1. Install
 
@@ -132,9 +132,9 @@ Evidence items: 1 (latest: cv_section:my-cv.txt)
 
 Your CV becomes **evidence**. The structured profile is the source of truth Scout reasons from. Set your floor so Scout can filter for you — minimum budget, excluded work, max Connects per application (edit via `scout profile`, or the config file).
 
-### 6. Bring an Upwork opportunity
+### 6. Bring a job posting
 
-Copy a real Upwork posting into a file (full description matters — Scout reads the whole thing, not just keywords):
+Copy a real posting into a file — the example below uses Upwork, but any job description works (full text matters — Scout reads the whole thing, not just keywords):
 
 ```bash
 scout opportunity add --title "Go SaaS API backend" \
@@ -186,9 +186,9 @@ ACTION REQUIRES APPROVAL
   /approvals approve opp-… · /approvals reject opp-…
 ```
 
-This is the trust boundary. Nothing reaches Upwork until you say so.
+This is the trust boundary. Nothing reaches any work source until you say so.
 
-### 10. Connect Upwork for real
+### 10. Connect a work source (Upwork example)
 
 ```bash
 scout integrations add Upwork https://mcp.upwork.com/mcp
@@ -197,7 +197,7 @@ scout integrations test Upwork
 
 The test performs read-only capability discovery. Full OAuth sign-in completes in the browser at Upwork's authorization page; the token is stored encrypted in Scout, never logged. Until authenticated, discovery reports what the integration *can* do (search, proposals, messaging, contracts) and Scout maps those into its normalized work-source model.
 
-Once connected, approved submissions execute through the official Upwork MCP — the same draft/confirm semantics Upwork itself enforces — and the application lands in your pipeline (`/applications`, `/pipeline`).
+Once connected, approved submissions execute through the official integration — with the same draft/confirm semantics the platform itself enforces — and the application lands in your pipeline (`/applications`, `/pipeline`). Other MCP-enabled job sources connect the same way (`scout integrations add Name <url-or-command>`); Upwork is simply the first one.
 
 ### 11. Keep it fresh
 
@@ -310,7 +310,7 @@ Enabled with user lingering, so it starts at device boot without login. Never ex
 
 ## MCP
 
-**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, OAuth tokens stored encrypted. Upwork is the first work source; the domain never assumes Upwork concepts.
+**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, OAuth tokens stored encrypted. Upwork is the first work source; LinkedIn-style listings and other job platforms fit the same normalized model as they gain usable official interfaces. The domain never assumes one platform\u2019s concepts.
 
 **Scout as server** — `scout mcp` (stdio) or `scout mcp serve` (Streamable HTTP) exposes domain tools (`get_profile`, `search_opportunities`, `analyze_opportunity`, `prepare_proposal`, `get_pipeline`, `approve_action`, …) to OpenCode, Codex, Claude, and other MCP clients. Same Core, same rules — including approvals.
 
