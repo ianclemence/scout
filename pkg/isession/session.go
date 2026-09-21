@@ -47,6 +47,12 @@ type ReplState struct {
 	// OpenModelSelector, when set (TUI), opens the interactive model selector
 	// instead of the line-mode fallback. The argument pre-fills the search.
 	OpenModelSelector func(search string)
+	// OpenThinking, when set (TUI), opens the interactive reasoning selector.
+	OpenThinking func()
+	// OpenSessions, when set (TUI), opens the interactive session picker.
+	OpenSessions func()
+	// OpenApprovals, when set (TUI), opens the interactive approval picker.
+	OpenApprovals func()
 	// Out receives command output. Defaults to stdout printing.
 	Out func(format string, a ...any)
 	// Width is the terminal width for command output (0 = unknown).
@@ -72,6 +78,9 @@ func (r *ReplState) ctx() *SessionCtx {
 		SetScopedModels:   r.setScopedModels,
 		OpenScopedModels:  r.OpenScopedModels,
 		OpenModelSelector: r.OpenModelSelector,
+		OpenThinking:      r.OpenThinking,
+		OpenSessions:      r.OpenSessions,
+		OpenApprovals:     r.OpenApprovals,
 	}
 }
 

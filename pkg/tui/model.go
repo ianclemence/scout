@@ -92,9 +92,12 @@ type model struct {
 	// be open at a time; both render in the dock below the composer.
 	scopedSel *scopedModelsUI
 	modelSel  *modelPickerUI
-	lastDay   string
-	welcomed  bool
-	quitting  bool
+	// picker is the general searchable list used by /thinking, /sessions,
+	// /approvals, /skills, /tools. It renders in the dock like the others.
+	picker   *listPickerUI
+	lastDay  string
+	welcomed bool
+	quitting bool
 }
 
 func initialModel(st *isession.ReplState) *model {
@@ -320,6 +323,34 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.picker != nil {
+		switch m.picker.handleKey(msg.String()) {
+		case "cancel":
+			m.picker = nil
+			return m, nil
+		case "pick":
+			if it, ok := m.picker.picked(); ok {
+				act := m.picker.act
+				m.picker = nil
+				if act != nil {
+					if out := act(it.value); out != "" {
+						m.println(entry{kind: eNotice, text: out, at: time.Now()})
+					}
+				}
+				return m, m.flushCmds()
+			}
+			return m, nil
+		case "secondary":
+			if it, ok := m.picker.picked(); ok && m.picker.secondary != nil {
+				if out := m.picker.secondary(it.value); out != "" {
+					m.println(entry{kind: eNotice, text: out, at: time.Now()})
+				}
+				return m, m.flushCmds()
+			}
+			return m, nil
+		}
+		return m, nil
+	}
 	if m.sel != nil && m.selMode == "palette" {
 		switch msg.String() {
 		case "esc", "ctrl+c":
@@ -452,11 +483,36 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		m.openLogoutFlow()
 		return m, m.flushCmds()
+	case "thinking", "think":
+		// Bare /thinking opens the interactive reasoning selector; an
+		// argument is handled by the shared command (validated + applied).
+		if strings.TrimSpace(args) == "" {
+			m.openThinking()
+			return m, nil
+		}
+	case "sessions":
+		if strings.TrimSpace(args) == "" {
+			m.openSessions()
+			return m, nil
+		}
+	case "resume":
+		if strings.TrimSpace(args) == "" {
+			m.openSessions()
+			return m, nil
+		}
+	case "approvals":
+		if strings.TrimSpace(args) == "" {
+			m.openApprovals()
+			return m, nil
+		}
 	}
 	m.st.Width = m.width
 	m.st.SwitchSession = m.switchSession
 	m.st.OpenScopedModels = m.openScopedModels
 	m.st.OpenModelSelector = m.openModelSelector
+	m.st.OpenThinking = m.openThinking
+	m.st.OpenSessions = m.openSessions
+	m.st.OpenApprovals = m.openApprovals
 	var out strings.Builder
 	st := m.st
 	prev := st.Out

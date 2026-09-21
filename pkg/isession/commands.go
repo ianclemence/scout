@@ -45,6 +45,13 @@ type SessionCtx struct {
 	OpenScopedModels func()
 	// OpenModelSelector, when set (TUI), opens the interactive model selector.
 	OpenModelSelector func(search string)
+	// OpenThinking, when set (TUI), opens the interactive reasoning-level
+	// selector. Line mode falls back to a printed list and a numeric prompt.
+	OpenThinking func()
+	// OpenSessions, when set (TUI), opens the interactive session picker.
+	OpenSessions func()
+	// OpenApprovals, when set (TUI), opens the interactive approval picker.
+	OpenApprovals func()
 }
 
 func (s *SessionCtx) Printf(format string, a ...any) { s.Out(format, a...) }
@@ -58,7 +65,7 @@ func Registry() []*Command {
 		{Name: "cv", Description: "Show CV/resume and citable items", Handler: cmdCV},
 		{Name: "scoped-models", Description: "Enable/disable & order models for Ctrl+P cycling (Ctrl+S saves)", Handler: cmdScopedModels},
 		{Name: "model", Description: "Select conversation model (opens selector UI)", ArgHint: "<provider/model>", Handler: cmdModel},
-		{Name: "thinking", Description: "Set reasoning level: /thinking <off|low|medium|high|max>", ArgHint: "<level>", Handler: cmdThinking},
+		{Name: "thinking", Description: "Set reasoning level (interactive picker; /thinking <level> to set directly)", ArgHint: "[level]", Handler: cmdThinking},
 		{Name: "providers", Description: "Show provider availability", Handler: cmdProviders},
 		{Name: "login", Description: "Connect a provider (staged: method → provider → masked key)", ArgHint: "[provider]", Handler: cmdLogin},
 		{Name: "logout", Description: "Remove a stored provider key", Handler: cmdLogout},
@@ -374,25 +381,62 @@ func cmdFeedback(ctx *SessionCtx, args string) error {
 	return nil
 }
 
+// thinkingLevels is the ordered set of reasoning levels Scout accepts.
+var thinkingLevels = []string{"off", "low", "medium", "high", "max"}
+
+var validThinking = map[string]bool{"off": true, "low": true, "medium": true, "high": true, "max": true}
+
+// cmdThinking mirrors the reference agents: bare /thinking opens an
+// interactive selector (TUI) or a numbered prompt (line mode); an argument
+// selects directly and is validated against the available levels, listing
+// them on an unknown value.
 func cmdThinking(ctx *SessionCtx, args string) error {
 	level := strings.ToLower(firstField(args))
-	switch level {
-	case "off", "low", "medium", "high", "max", "":
-	default:
-		return fmt.Errorf("usage: /thinking <off|low|medium|high|max>")
-	}
-	if level == "" {
-		cur := ctx.Session.Thinking
-		if cur == "" {
-			cur = "provider default"
+	if level != "" {
+		if !validThinking[level] {
+			return fmt.Errorf("unknown thinking level %q — available: %s", level, strings.Join(thinkingLevels, ", "))
 		}
-		ctx.Printf("Reasoning level: %s (provider %s, model %s)\n", cur, ctx.Session.Provider, ctx.Session.Model)
+		return applyThinking(ctx, level)
+	}
+	if ctx.OpenThinking != nil {
+		ctx.OpenThinking()
 		return nil
 	}
+	// Line mode: numbered selector.
+	ctx.Printf("Thinking level (current: %s):\n", displayThinking(ctx.Session.Thinking))
+	for i, l := range thinkingLevels {
+		mark := "  "
+		if l == ctx.Session.Thinking {
+			mark = "✓ "
+		}
+		ctx.Printf("  %d  %s%s\n", i+1, mark, l)
+	}
+	ctx.Printf("Choice: ")
+	choice, err := readLineCooked()
+	if err != nil || strings.TrimSpace(choice) == "" {
+		return nil
+	}
+	var n int
+	if _, err := fmt.Sscanf(choice, "%d", &n); err == nil && n >= 1 && n <= len(thinkingLevels) {
+		return applyThinking(ctx, thinkingLevels[n-1])
+	}
+	return cmdThinking(ctx, choice)
+}
+
+// applyThinking sets and persists the session reasoning level.
+func applyThinking(ctx *SessionCtx, level string) error {
 	ctx.Session.Thinking = level
 	csession.SetThinking(ctx.Core.DB, ctx.Session.ID, level)
 	ctx.Printf("Reasoning level → %s (mapped to %s capabilities).\n", level, ctx.Session.Provider)
 	return nil
+}
+
+// displayThinking renders an empty level as the provider default.
+func displayThinking(level string) string {
+	if level == "" {
+		return "provider default"
+	}
+	return level
 }
 
 func cmdSources(ctx *SessionCtx, args string) error {

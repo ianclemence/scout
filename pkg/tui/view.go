@@ -41,6 +41,9 @@ func (m *model) View() string {
 	} else if m.modelSel != nil {
 		b.WriteString(m.modelSel.view(m.width))
 		b.WriteString("\n")
+	} else if m.picker != nil {
+		b.WriteString(m.picker.view(m.width))
+		b.WriteString("\n")
 	} else if m.sel != nil {
 		b.WriteString(m.selectorView())
 		b.WriteString("\n")
@@ -304,6 +307,8 @@ func (m *model) footerKeys() string {
 		keys = "↑↓ move · enter toggle · ctrl+a/x all/clear · ctrl+p provider · alt+↑↓ reorder · ctrl+s save · esc close"
 	case m.modelSel != nil:
 		keys = "↑↓ pick · tab scope · enter select · ctrl+s default · esc close"
+	case m.picker != nil:
+		keys = "↑↓ pick · type to filter · enter select · esc cancel"
 	case m.sel != nil:
 		keys = "↑↓ pick · enter select · esc close"
 	case m.working:
