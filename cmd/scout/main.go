@@ -11,12 +11,18 @@ import (
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/secret"
 	"github.com/ianclemence/scout/pkg/store"
+	"github.com/ianclemence/scout/pkg/termui"
 	"github.com/ianclemence/scout/pkg/upwork"
 	"github.com/ianclemence/scout/pkg/version"
 	"github.com/ianclemence/scout/pkg/workspace"
 )
 
 func main() {
+	// One-shot command output is styled only when stdout is a terminal, so
+	// piping or redirecting yields clean, escape-free text.
+	if fi, err := os.Stdout.Stat(); err == nil {
+		termui.StyleEnabled = fi.Mode()&os.ModeCharDevice != 0
+	}
 	if len(os.Args) < 2 {
 		must(runInteractive(""))
 		return

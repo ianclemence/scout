@@ -189,7 +189,7 @@ func Run(st *isession.ReplState) error {
 }
 
 func (m *model) Init() tea.Cmd {
-	return tea.Batch(textarea.Blink, m.welcomeCmd())
+	return tea.Batch(textarea.Blink, m.welcomeCmd(), m.historyCmd())
 }
 
 func (m *model) welcomeCmd() tea.Cmd {
@@ -202,6 +202,43 @@ func (m *model) welcomeCmd() tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// historyCmd loads the session's prior turns and returns them for rendering
+// into the transcript, so opening or resuming a session shows the conversation
+// instead of an empty screen. The same history is already loaded into model
+// context; this makes it visible to the human.
+type historyMsg struct{ rendered string }
+
+func (m *model) historyCmd() tea.Cmd {
+	return func() tea.Msg {
+		return historyMsg{rendered: m.renderHistory()}
+	}
+}
+
+// renderHistory builds the scrollback block for a session's prior turns: a
+// header, then each turn rendered exactly like a live one (user bubble,
+// assistant block), so restored history is visually identical to how it looked
+// when first exchanged.
+func (m *model) renderHistory() string {
+	msgs, err := csession.LoadMessages(m.st.Core.DB, m.st.Sess.ID, 40)
+	if err != nil || len(msgs) == 0 {
+		return ""
+	}
+	var blocks []string
+	blocks = append(blocks, styleDayDivider.Render("── Earlier in this session "+strings.Repeat("─", maxInt(1, m.width-28))))
+	for _, mm := range msgs {
+		switch mm.Role {
+		case "user":
+			blocks = append(blocks, m.renderEntry(entry{kind: eUser, text: mm.Content, at: time.Now()}))
+		case "assistant":
+			if strings.TrimSpace(mm.Content) == "" {
+				continue
+			}
+			blocks = append(blocks, m.renderEntry(entry{kind: eScout, text: mm.Content, at: time.Now()}))
+		}
+	}
+	return strings.Join(blocks, "\n\n")
 }
 
 type welcomeMsg struct{}
@@ -235,6 +272,11 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Release notes are available on demand (/changelog, `scout update`);
 		// they are deliberately not injected into the welcome card.
 		return m, tea.Println(m.welcomeCard())
+	case historyMsg:
+		if msg.rendered == "" {
+			return m, nil
+		}
+		return m, tea.Println(msg.rendered)
 	case modelsRefreshedMsg:
 		return m.handleModelsRefreshed(msg)
 	case mcpLoginResultMsg:

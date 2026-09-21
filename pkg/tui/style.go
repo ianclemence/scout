@@ -47,6 +47,9 @@ var (
 
 	styleFooter     = lipgloss.NewStyle().Foreground(cFaint)
 	styleFooterHint = lipgloss.NewStyle().Foreground(cFaint).Italic(true)
+	// A restored-conversation divider: quiet, so it reads as a boundary, not
+	// as content.
+	styleDayDivider = lipgloss.NewStyle().Foreground(cFaint)
 
 	styleModelLocal = lipgloss.NewStyle().Foreground(cGreen).Bold(true)
 	styleModelCloud = lipgloss.NewStyle().Foreground(cBlue).Bold(true)

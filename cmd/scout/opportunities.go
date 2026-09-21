@@ -14,6 +14,7 @@ import (
 	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/sources"
+	"github.com/ianclemence/scout/pkg/termui"
 	"github.com/ianclemence/scout/pkg/version"
 )
 
@@ -23,8 +24,17 @@ func statusCmd(c *runtime.Core) error {
 	_ = c.DB.DB.QueryRow(`SELECT COUNT(*) FROM pending_actions WHERE status IN ('draft','pending_approval')`).Scan(&p)
 	_ = c.DB.DB.QueryRow(`SELECT COUNT(*) FROM applications`).Scan(&a)
 	pr, _ := c.Profile()
-	fmt.Printf("scout %s · profile %s (%d skills) · opportunities=%d pending=%d applications=%d\n",
-		version.Version, pr.DisplayName, len(pr.Skills), o, p, a)
+	prof := pr.DisplayName
+	if prof == "" {
+		prof = "not set"
+	}
+	termui.Print(termui.KV("Scout", [][2]string{
+		{"Version", termui.Bold(version.Version)},
+		{"Profile", prof + termui.Dim(fmt.Sprintf(" · %d skills", len(pr.Skills)))},
+		{"Opportunities", termui.Bold(fmt.Sprintf("%d", o))},
+		{"Pending approvals", termui.Bold(fmt.Sprintf("%d", p))},
+		{"Applications", termui.Bold(fmt.Sprintf("%d", a))},
+	}))
 	return nil
 }
 
@@ -50,7 +60,7 @@ func discoverCmd(c *runtime.Core, args []string) error {
 		fmt.Println("  ! " + w)
 	}
 	if res.Stored > 0 {
-		fmt.Println("Review them with: scout opportunities")
+		fmt.Println(termui.Dim("Review them with: scout opportunities"))
 	}
 	return nil
 }
@@ -60,9 +70,15 @@ func oppsCmd(c *runtime.Core, args []string) error {
 	if err != nil {
 		return err
 	}
-	for _, o := range opps {
-		fmt.Printf("%s\t%s — %s\n", o.ID, o.Title, o.HumanListDetail())
+	if len(opps) == 0 {
+		fmt.Println(termui.Dim("No opportunities yet."))
+		return nil
 	}
+	var rows [][]string
+	for _, o := range opps {
+		rows = append(rows, []string{o.ID, o.Title, o.HumanListDetail()})
+	}
+	termui.Print(termui.Table([]string{"ID", "Title", "Fit"}, rows))
 	return nil
 }
 

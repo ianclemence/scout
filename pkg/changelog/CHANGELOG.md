@@ -3,6 +3,24 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.2] - 2026-09-22
+
+Session history on open, and consistent styled command output.
+
+- **Opening or resuming a session shows the conversation.** Prior user and
+  assistant turns are rendered into the transcript (with an "Earlier in this
+  session" divider) exactly as they looked when first exchanged, so switching
+  sessions reveals the chat instead of a blank screen. Works on startup
+  (`scout resume <id>`), the `/sessions` picker, and `/resume` — matching how
+  opencode and pi restore a session.
+- **One output style across every command.** A shared terminal presenter
+  (`pkg/termui`) gives the scriptable CLI the same visual language as the TUI:
+  dim secondary text, emphasized values, semantic glyphs (`✓`/`✗`), titled
+  sections, and aligned tables with a styled header and rule. `status`,
+  `providers`/`models`, `opportunities`, `sessions`, `integrations`, `skills`,
+  and `tools` all use it, and styling is disabled automatically when output is
+  piped or redirected so machine consumers get clean text.
+
 ## [0.13.1] - 2026-09-22
 
 Human-readable opportunity views and a corrected Upwork submission flow.

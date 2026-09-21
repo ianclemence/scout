@@ -397,7 +397,13 @@ func (m *model) openSessions() {
 			if err := m.st.SwitchSession(sess); err != nil {
 				return "could not switch: " + err.Error()
 			}
-			return "resumed session " + shortID(sess.ID)
+			// Render the switched-to session's history into the transcript, just
+			// like opening a session, so the conversation is visible.
+			if h := m.renderHistory(); h != "" {
+				m.println(entry{kind: eNotice, text: "", at: time.Now()})
+				m.println(entry{kind: eCommand, text: h, at: time.Now()})
+			}
+			return "switched to session " + shortID(sess.ID) + " (" + sess.Name + ")"
 		}
 		return "session " + shortID(sess.ID)
 	})

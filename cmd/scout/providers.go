@@ -11,28 +11,36 @@ import (
 
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/runtime"
+	"github.com/ianclemence/scout/pkg/termui"
 )
 
 func providersCmd(c *runtime.Core) error {
-	fmt.Printf("%-16s %-10s %-6s %s\n", "PROVIDER", "CONFIGURED", "MODELS", "DETAIL / ROLES")
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
+	var rows [][]string
 	for _, p := range c.ProviderStatus(ctx) {
-		mark := "no"
+		mark := termui.Dim("no")
 		if p.Configured {
-			mark = "yes"
+			mark = termui.Good("yes")
 		}
 		roles := ""
 		if len(p.Roles) > 0 {
-			roles = " [" + strings.Join(p.Roles, ",") + "]"
+			roles = termui.Accent("[" + strings.Join(p.Roles, ", ") + "]")
 		}
-		fmt.Printf("%-16s %-10s %-6d %s%s\n", p.Provider, mark, p.Models, p.Detail, roles)
+		detail := p.Detail
+		if roles != "" {
+			detail += "  " + roles
+		}
+		rows = append(rows, []string{p.Provider, mark, fmt.Sprintf("%d", p.Models), detail})
 	}
-	fmt.Printf("\nroles:\n")
+	termui.Print(termui.Table([]string{"Provider", "Ready", "Models", "Detail / roles"}, rows))
+	fmt.Println()
+	var roleRows [][]string
 	for _, role := range []string{config.RoleConversation, config.RoleWorker} {
 		r := c.Cfg.Models[role]
-		fmt.Printf("  %-13s %s/%s\n", role, r.Provider, r.Model)
+		roleRows = append(roleRows, []string{role, termui.Bold(r.Provider + "/" + r.Model)})
 	}
+	termui.Print(termui.Table([]string{"Role", "Model"}, roleRows))
 	return nil
 }
 

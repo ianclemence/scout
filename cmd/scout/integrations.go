@@ -14,6 +14,7 @@ import (
 
 	"github.com/ianclemence/scout/pkg/mcpauth"
 	"github.com/ianclemence/scout/pkg/runtime"
+	"github.com/ianclemence/scout/pkg/termui"
 )
 
 // integrationsCmd is the CLI view of the shared connector surface
@@ -36,7 +37,7 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 			fmt.Println("  scout integrations add Upwork https://mcp.upwork.com/mcp")
 			return nil
 		}
-		fmt.Printf("%-14s %-10s %-16s %-18s %s\n", "NAME", "KIND", "STATE", "AUTH", "CAPABILITIES")
+		var rows [][]string
 		for _, conn := range conns {
 			state := "off"
 			if conn.Enabled {
@@ -45,16 +46,22 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 					state = "configured"
 				}
 			}
+			auth := conn.HumanAuth()
+			if auth == "connected" {
+				auth = termui.Good(auth)
+			} else {
+				auth = termui.Dim(auth)
+			}
+			rows = append(rows, []string{conn.Name, termui.Dim(conn.Kind), state, auth, termui.Dim(runtime.CapabilityLabels(conn.Capabilities))})
+		}
+		termui.Print(termui.Table([]string{"Name", "Kind", "State", "Auth", "Capabilities"}, rows))
+		for _, conn := range conns {
 			endpoint := conn.Endpoint
 			if conn.Kind == "mcp-stdio" {
 				endpoint = conn.Command
 			}
-			fmt.Printf("%-14s %-10s %-16s %-18s %s\n", conn.Name, conn.Kind, state, conn.HumanAuth(), runtime.CapabilityLabels(conn.Capabilities))
 			if endpoint != "" {
-				fmt.Printf("%-14s %s\n", "", endpoint)
-			}
-			if conn.Detail != "" && conn.Status != "configured" && conn.Status != "" {
-				fmt.Printf("%-14s %s\n", "", conn.Detail)
+				fmt.Printf("  %s %s\n", termui.Dim(conn.Name+":"), termui.Dim(endpoint))
 			}
 		}
 		return nil

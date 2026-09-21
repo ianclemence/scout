@@ -15,6 +15,7 @@ import (
 	"github.com/ianclemence/scout/pkg/isession"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/runtime"
+	"github.com/ianclemence/scout/pkg/termui"
 )
 
 func sessionsCmd(c *runtime.Core, args []string) error {
@@ -28,10 +29,24 @@ func sessionsCmd(c *runtime.Core, args []string) error {
 		fmt.Println(string(b))
 		return nil
 	}
+	var rows [][]string
 	for _, s := range list {
-		fmt.Printf("%s\t%s\t%s/%s\t%s\n", s.ID, s.Name, s.Provider, s.Model, s.UpdatedAt.Format(time.RFC3339))
+		name := s.Name
+		if name == "" {
+			name = termui.Dim("untitled")
+		}
+		rows = append(rows, []string{shortSessionID(s.ID), name, termui.Dim(s.Provider + "/" + s.Model), termui.Dim(s.UpdatedAt.Format("2006-01-02 15:04"))})
 	}
+	termui.Print(termui.Table([]string{"Session", "Name", "Model", "Updated"}, rows))
 	return nil
+}
+
+// shortSessionID trims an id to a readable prefix for list output.
+func shortSessionID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
 }
 
 func skillsCmd(c *runtime.Core, args []string) error {
@@ -42,20 +57,24 @@ func skillsCmd(c *runtime.Core, args []string) error {
 	}
 	if len(args) > 0 {
 		for _, s := range reg.Select(strings.Join(args, " "), 5) {
-			fmt.Printf("%s\n", s.Name)
+			fmt.Println(s.Name)
 		}
 		return nil
 	}
+	var srows [][]string
 	for _, s := range reg.List() {
-		fmt.Printf("%-28s %s\n", s.Name, strings.Join(s.Triggers, ", "))
+		srows = append(srows, []string{s.Name, termui.Dim(strings.Join(s.Triggers, ", "))})
 	}
+	termui.Print(termui.Table([]string{"Skill", "Triggers"}, srows))
 	return nil
 }
 
 func toolsCmd(c *runtime.Core) error {
+	var rows [][]string
 	for _, t := range c.Tools() {
-		fmt.Printf("%-26s %-14s %s\n", t.Name, t.Permission, t.Description)
+		rows = append(rows, []string{t.Name, termui.Dim(string(t.Permission)), termui.Dim(t.Description)})
 	}
+	termui.Print(termui.Table([]string{"Tool", "Permission", "Description"}, rows))
 	return nil
 }
 
