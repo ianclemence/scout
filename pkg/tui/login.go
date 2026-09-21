@@ -30,6 +30,7 @@ const (
 	loginStageProvider
 	loginStageKey
 	loginStageLogout
+	loginStageOAuth
 )
 
 // loginMethod is one authentication method in the first-stage selector: an
@@ -68,6 +69,11 @@ type loginFlowUI struct {
 	authFilter string
 	// logout mode: whether the method stage was shown (for cancel back-stack)
 	modeLogout bool
+
+	// OAuth (account sign-in) stage state.
+	oauthProvider string
+	oauthURL      string
+	oauthInput    textinput.Model
 }
 
 // Authentication-method labels, kept in one place so the terminal, docs, and
@@ -88,8 +94,7 @@ func newLoginFlow() *loginFlowUI {
 }
 
 // hasAccountProviders reports whether any provider offers account (OAuth /
-// subscription) sign-in. None do today; the method selector still offers the
-// choice so OAuth can be added without a UI change.
+// subscription) sign-in (Anthropic Claude Pro/Max today).
 func hasAccountProviders(core *runtime.Core) bool {
 	return len(loginProviders(core, "account")) > 0
 }
@@ -126,6 +131,20 @@ func (f *loginFlowUI) openKeyStage(provider, name string) {
 	f.errMsg = ""
 }
 
+// openOAuthStage shows the authorization URL and a field for pasting the
+// redirect URL/code when the browser runs on another machine.
+func (f *loginFlowUI) openOAuthStage(provider, authorizeURL string) {
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.CharLimit = 2000
+	ti.Focus()
+	f.stage = loginStageOAuth
+	f.oauthProvider = provider
+	f.oauthURL = authorizeURL
+	f.oauthInput = ti
+	f.errMsg = ""
+}
+
 func (f *loginFlowUI) rebuild() {
 	q := strings.ToLower(strings.TrimSpace(f.search))
 	if q == "" {
@@ -155,6 +174,7 @@ type keyResult struct {
 	provider string      // provider whose key dialog was submitted/opened
 	method   string      // selected method authType (from the method stage)
 	logout   string      // provider to log out
+	manual   string      // pasted OAuth redirect URL/code
 	moveTo   *loginStage // stage to move to (nil = stay)
 }
 
@@ -208,6 +228,9 @@ func (f *loginFlowUI) handleKey(msg tea.KeyMsg) keyResult {
 			if f.stage == loginStageLogout {
 				return keyResult{logout: p.id}
 			}
+			if p.authType == "account" {
+				return keyResult{provider: p.id, method: "account", moveTo: stage(loginStageOAuth)}
+			}
 			return keyResult{provider: p.id, moveTo: stage(loginStageKey)}
 		case "backspace":
 			if f.search != "" {
@@ -231,6 +254,20 @@ func (f *loginFlowUI) handleKey(msg tea.KeyMsg) keyResult {
 		}
 		var cmd tea.Cmd
 		f.input, cmd = f.input.Update(msg)
+		_ = cmd
+		return keyResult{}
+	case loginStageOAuth:
+		switch key {
+		case "esc", "ctrl+c":
+			return keyResult{done: true}
+		case "enter":
+			if v := strings.TrimSpace(f.oauthInput.Value()); v != "" {
+				return keyResult{manual: v}
+			}
+			return keyResult{}
+		}
+		var cmd tea.Cmd
+		f.oauthInput, cmd = f.oauthInput.Update(msg)
 		_ = cmd
 		return keyResult{}
 	}
@@ -271,6 +308,19 @@ func (f *loginFlowUI) view(width int) string {
 			b.WriteString("\n " + styleError.Render(f.errMsg))
 		}
 		b.WriteString("\n\n" + styleFooterHint.Render(" (esc to cancel, enter to submit)"))
+	case loginStageOAuth:
+		b.WriteString(" " + styleModalTitle.Render("Sign in to "+providerDisplay(f.oauthProvider)) + "\n\n")
+		b.WriteString(" " + styleAssistant.Render("Open this URL in a browser to authorize:") + "\n")
+		for _, ln := range wrapANSI(f.oauthURL, width-4) {
+			b.WriteString(" " + styleNotice.Render(ln) + "\n")
+		}
+		b.WriteString("\n " + styleAssistant.Render("Waiting for authorization…") + "\n")
+		b.WriteString(" " + styleFooterHint.Render("If the browser is on another machine, paste the final redirect URL or code:") + "\n")
+		b.WriteString(" " + f.oauthInput.View())
+		if f.errMsg != "" {
+			b.WriteString("\n " + styleError.Render(f.errMsg))
+		}
+		b.WriteString("\n\n" + styleFooterHint.Render(" (esc to cancel, enter to submit pasted code)"))
 	}
 	b.WriteString("\n" + rule)
 	return b.String()
@@ -305,10 +355,9 @@ func (f *loginFlowUI) providerList() string {
 // ---------- provider catalogs ----------
 
 // accountProviders lists providers that support account (OAuth/subscription)
-// sign-in. Scout's providers are API-key only today, so this is empty; it is
-// the single seam a future OAuth provider plugs into, and the method selector
-// reads it rather than hard-coding the answer.
-var accountProviders = map[string]bool{}
+// sign-in. Anthropic (Claude Pro/Max) is the first; the map is the single seam
+// more account providers plug into.
+var accountProviders = map[string]bool{"anthropic": true}
 
 // loginProviders builds the provider catalog with live status, filtered to
 // the requested authentication method.
@@ -336,10 +385,14 @@ func loginProviders(core *runtime.Core, authType string) []authProvider {
 		case ps.Configured:
 			status = "configured"
 		}
+		authType := "api_key"
+		if accountProviders[ps.Provider] {
+			authType = "account"
+		}
 		out = append(out, authProvider{
 			id:       ps.Provider,
 			name:     providerDisplay(ps.Provider),
-			authType: "api_key",
+			authType: authType,
 			status:   status,
 			ok:       ok,
 		})

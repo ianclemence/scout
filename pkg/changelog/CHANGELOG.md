@@ -3,6 +3,30 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.8] - 2026-09-21
+
+Account sign-in and terminal-polish release.
+
+- **Account sign-in (Anthropic Claude Pro/Max).** `/login` → "Sign in with an
+  account" runs the same PKCE authorization-code flow the Pi agent uses: a
+  loopback callback on `127.0.0.1:53692`, the authorization URL opened in your
+  browser, and a paste field for a remote browser. Tokens are stored encrypted
+  and refreshed transparently; requests use Bearer auth with the Claude Code
+  beta headers and identity block. API-key sign-in is unchanged.
+- **Pi-style command palette.** Rows show the command name and a one-line
+  description; the argument hint folds in as `<hint> — description`. The group
+  tags (`[Connect]`, `[Session]`) are gone, and the primary column sizes to the
+  widest visible command.
+- **Command results are Scout's answer.** Local command output is rendered in
+  the same wrapped-prose style as a model reply rather than as an aligned data
+  table. `/tools` now lists tools by permission class as readable bullets.
+- **Consistent argument hints.** Optional `[level]`/`[provider]`-style brackets
+  are replaced with concrete `<placeholder>` hints, and descriptions no longer
+  repeat the command's own invocation.
+- **Cleaner welcome card.** The get-started hints are aligned as one centered
+  block with accent-coloured commands, and configured work sources sit on their
+  own labelled line.
+
 ## [0.7.7] - 2026-09-21
 
 Self-update fix.

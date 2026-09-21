@@ -1,19 +1,41 @@
 package isession
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/llm"
+	"github.com/ianclemence/scout/pkg/oauth"
 	"github.com/ianclemence/scout/pkg/registry"
 )
 
 // loginProviderIDs is the credential-bearing provider catalog, in stable order.
 var loginProviderIDs = []string{"openai", "anthropic", "deepseek", "moonshot"}
+
+// accountProviderIDs are the providers offering account (OAuth/subscription)
+// sign-in.
+var accountProviderIDs = []string{"anthropic"}
+
+// loginProviderName is the human label for a provider id.
+func loginProviderName(id string) string {
+	switch id {
+	case "anthropic":
+		return "Anthropic (Claude Pro/Max)"
+	case "openai":
+		return "OpenAI"
+	case "deepseek":
+		return "DeepSeek"
+	case "moonshot":
+		return "Moonshot"
+	}
+	return id
+}
 
 // cmdLogin implements the line-mode login flow, mirroring the TUI's staged
 // experience: with a provider argument it prompts for that key directly;
@@ -31,8 +53,21 @@ func cmdLogin(ctx *SessionCtx, args string) error {
 			return nil
 		}
 		if strings.TrimSpace(method) == "1" {
-			ctx.Printf("No account sign-in providers are available yet — choose \"Sign in with an API key\".\n")
-			return nil
+			ctx.Printf("Select account provider (number):\n")
+			for i, id := range accountProviderIDs {
+				ctx.Printf("  %2d  %s\n", i+1, loginProviderName(id))
+			}
+			ctx.Printf("Choice: ")
+			achoice, aerr := readLineCooked()
+			if aerr != nil || strings.TrimSpace(achoice) == "" {
+				return nil
+			}
+			ap := accountProviderIDs[0]
+			var idx int
+			if _, serr := fmt.Sscanf(achoice, "%d", &idx); serr == nil && idx >= 1 && idx <= len(accountProviderIDs) {
+				ap = accountProviderIDs[idx-1]
+			}
+			return cmdLoginAccount(ctx, ap)
 		}
 		// Stage 2: provider.
 		ctx.Printf("Select provider to configure (number):\n")
@@ -69,6 +104,83 @@ func cmdLogin(ctx *SessionCtx, args string) error {
 	}
 	ctx.Printf("%s key stored (encrypted). Never displayed again.\n", p)
 	return nil
+}
+
+// cmdLoginAccount runs account (subscription) sign-in. It prints the
+// authorization URL, opens the browser where possible, and completes on the
+// loopback callback or a pasted redirect URL/code.
+func cmdLoginAccount(ctx *SessionCtx, provider string) error {
+	flow, err := oauth.NewFlow()
+	if err != nil {
+		return err
+	}
+	defer flow.Close()
+	if err := flow.Start(); err != nil {
+		ctx.Printf("(local callback listener unavailable: %v — paste the code instead)\n", err)
+	}
+	ctx.Printf("Open this URL in a browser to authorize %s:\n\n  %s\n\n", loginProviderName(provider), flow.AuthorizeURL())
+	_ = openBrowserLine(flow.AuthorizeURL())
+	ctx.Printf("Waiting for authorization… (or paste the redirect URL / code and press enter)\n")
+
+	type outcome struct {
+		cred *oauth.Credential
+		err  error
+	}
+	resCh := make(chan outcome, 1)
+	go func() {
+		code, werr := flow.Wait(context.Background())
+		if werr != nil {
+			resCh <- outcome{err: werr}
+			return
+		}
+		cred, xerr := flow.Exchange(context.Background(), code)
+		resCh <- outcome{cred: cred, err: xerr}
+	}()
+
+	inputCh := make(chan string, 1)
+	go func() {
+		line, _ := readLineCooked()
+		inputCh <- line
+	}()
+
+	select {
+	case r := <-resCh:
+		if r.err != nil {
+			return r.err
+		}
+		return storeOAuthCredential(ctx, provider, r.cred)
+	case line := <-inputCh:
+		if !flow.Submit(line) {
+			return fmt.Errorf("could not parse an authorization code from the input")
+		}
+		r := <-resCh
+		if r.err != nil {
+			return r.err
+		}
+		return storeOAuthCredential(ctx, provider, r.cred)
+	}
+}
+
+func storeOAuthCredential(ctx *SessionCtx, provider string, cred *oauth.Credential) error {
+	if cred == nil {
+		return fmt.Errorf("sign-in did not return a credential")
+	}
+	if err := ctx.Core.SaveSecret("llm:"+provider, cred.Encode()); err != nil {
+		return err
+	}
+	ctx.Printf("Signed in to %s. Credential stored (encrypted). Never displayed again.\n", loginProviderName(provider))
+	return nil
+}
+
+func openBrowserLine(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return exec.Command("xdg-open", url).Start()
+	}
 }
 
 func cmdLogout(ctx *SessionCtx, args string) error {

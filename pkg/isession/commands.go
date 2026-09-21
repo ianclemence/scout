@@ -86,27 +86,27 @@ func Registry() []*Command {
 	cmds := []*Command{
 		// Work — find, evaluate, draft, track.
 		{Name: "discover", Group: GroupWork, Description: "Run discovery across connected sources (read-only)", Handler: cmdDiscover},
-		{Name: "opportunities", Group: GroupWork, Description: "Browse stored opportunities; /opportunities <query>", ArgHint: "[query]", Aliases: []string{"opps"}, Handler: cmdOpps},
-		{Name: "opportunity", Group: GroupWork, Description: "Posting + evaluation + proposal: /opportunity <id>", ArgHint: "<id>", Handler: cmdOpp},
-		{Name: "analyze", Group: GroupWork, Description: "Deterministic filter + structured fit: /analyze <id>", ArgHint: "<id>", Handler: cmdAnalyze},
-		{Name: "proposal", Group: GroupWork, Description: "Draft a grounded proposal (never sends): /proposal <id>", ArgHint: "<id>", Handler: cmdProposal},
-		{Name: "applications", Group: GroupWork, Description: "Pipeline applications", Aliases: []string{"apps"}, Handler: cmdApplications},
+		{Name: "opportunities", Group: GroupWork, Description: "List stored opportunities", ArgHint: "<query>", Aliases: []string{"opps"}, Handler: cmdOpps},
+		{Name: "opportunity", Group: GroupWork, Description: "Posting, evaluation, and proposal", ArgHint: "<id>", Handler: cmdOpp},
+		{Name: "analyze", Group: GroupWork, Description: "Structured fit for an opportunity", ArgHint: "<id>", Handler: cmdAnalyze},
+		{Name: "proposal", Group: GroupWork, Description: "Draft a grounded proposal (never sends)", ArgHint: "<id>", Handler: cmdProposal},
+		{Name: "applications", Group: GroupWork, Description: "List applications by stage", Aliases: []string{"apps"}, Handler: cmdApplications},
 		{Name: "pipeline", Group: GroupWork, Description: "Application counts by stage", Handler: cmdPipeline},
 		{Name: "inbox", Group: GroupWork, Description: "Messages needing attention", Handler: cmdInbox},
-		{Name: "feedback", Group: GroupWork, Description: "Record explicit preference: /feedback <id> <signal> [note]", ArgHint: "<id> <signal>", Handler: cmdFeedback},
+		{Name: "feedback", Group: GroupWork, Description: "Record an explicit preference signal", ArgHint: "<id> <signal>", Handler: cmdFeedback},
 		// Decide — the trust boundary.
-		{Name: "approvals", Group: GroupDecide, Description: "Review/decide pending actions (picker; records your decision)", ArgHint: "[approve|reject <id>]", Handler: cmdApprovals},
+		{Name: "approvals", Group: GroupDecide, Description: "Review and decide pending actions", Handler: cmdApprovals},
 		// You — the source of truth.
-		{Name: "profile", Group: GroupYou, Description: "Structured profile; /profile import <path> to update", ArgHint: "[import <path>]", Handler: cmdProfile},
-		{Name: "cv", Group: GroupYou, Description: "Resume content and citable evidence items", Handler: cmdCV},
+		{Name: "profile", Group: GroupYou, Description: "Who Scout thinks you are", Handler: cmdProfile},
+		{Name: "cv", Group: GroupYou, Description: "Resume content and citable evidence", Handler: cmdCV},
 		// Connect — sources, providers, models.
-		{Name: "sources", Group: GroupConnect, Description: "Work sources & MCP connectors: list, test, add, token", ArgHint: "[list|test|add|token|enable|disable|remove]", Aliases: []string{"integrations"}, Handler: cmdSources},
+		{Name: "sources", Group: GroupConnect, Description: "Work sources & MCP connectors", Aliases: []string{"integrations"}, Handler: cmdSources},
 		{Name: "providers", Group: GroupConnect, Description: "Provider availability and model counts", Handler: cmdProviders},
-		{Name: "login", Group: GroupConnect, Description: "Connect a provider (staged: method → provider → key)", ArgHint: "[provider]", Handler: cmdLogin},
-		{Name: "logout", Group: GroupConnect, Description: "Remove a stored provider key", Handler: cmdLogout},
-		{Name: "model", Group: GroupConnect, Description: "Select conversation model (interactive picker)", ArgHint: "[provider/model]", Handler: cmdModel},
-		{Name: "scoped-models", Group: GroupConnect, Description: "Enable/disable & order models for Ctrl+P cycling (Ctrl+S saves)", Handler: cmdScopedModels},
-		{Name: "thinking", Group: GroupConnect, Description: "Set reasoning level (interactive picker)", ArgHint: "[level]", Handler: cmdThinking},
+		{Name: "login", Group: GroupConnect, Description: "Connect a provider", ArgHint: "<provider>", Handler: cmdLogin},
+		{Name: "logout", Group: GroupConnect, Description: "Remove a stored provider credential", Handler: cmdLogout},
+		{Name: "model", Group: GroupConnect, Description: "Select conversation model", ArgHint: "<provider/model>", Handler: cmdModel},
+		{Name: "scoped-models", Group: GroupConnect, Description: "Choose the models Ctrl+P cycles", Handler: cmdScopedModels},
+		{Name: "thinking", Group: GroupConnect, Description: "Set reasoning level", ArgHint: "<level>", Handler: cmdThinking},
 		{Name: "skills", Group: GroupConnect, Description: "List agent skills (workflows)", Handler: cmdSkills},
 		{Name: "tools", Group: GroupConnect, Description: "List agent tools and permission classes", Handler: cmdTools},
 		// Session — lifecycle and transcript.
@@ -114,14 +114,14 @@ func Registry() []*Command {
 		{Name: "keys", Group: GroupSession, Description: "Keyboard shortcuts", Handler: cmdKeys},
 		{Name: "status", Group: GroupSession, Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
 		{Name: "session", Group: GroupSession, Description: "Current session info", Handler: cmdSession},
-		{Name: "sessions", Group: GroupSession, Description: "List/pick a session (Enter switches in the TUI)", Aliases: []string{"resume"}, Handler: cmdSessions},
+		{Name: "sessions", Group: GroupSession, Description: "List or switch sessions", Aliases: []string{"resume"}, Handler: cmdSessions},
 		{Name: "new", Group: GroupSession, Description: "Start a new session", Handler: cmdNew},
-		{Name: "name", Group: GroupSession, Description: "Rename the session: /name <name>", ArgHint: "<name>", Handler: cmdName},
-		{Name: "export", Group: GroupSession, Description: "Export transcript to markdown: /export <path>", ArgHint: "<path>", Handler: cmdExport},
-		{Name: "copy", Group: GroupSession, Description: "Copy last assistant message (clipboard where available)", Handler: cmdCopy},
-		{Name: "clear", Group: GroupSession, Description: "Clear screen (keeps history)", Handler: cmdClear},
+		{Name: "name", Group: GroupSession, Description: "Rename the session", ArgHint: "<name>", Handler: cmdName},
+		{Name: "export", Group: GroupSession, Description: "Export the transcript to markdown", ArgHint: "<path>", Handler: cmdExport},
+		{Name: "copy", Group: GroupSession, Description: "Copy the last assistant message", Handler: cmdCopy},
+		{Name: "clear", Group: GroupSession, Description: "Clear the screen (keeps history)", Handler: cmdClear},
 		{Name: "compact", Group: GroupSession, Description: "Summarize and trim session context", Handler: cmdCompact},
-		{Name: "doctor", Group: GroupSession, Description: "Diagnostics (DB, providers, Ollama, sources, disk)", Handler: cmdDoctor},
+		{Name: "doctor", Group: GroupSession, Description: "Diagnostics (DB, providers, Ollama, disk)", Handler: cmdDoctor},
 		{Name: "changelog", Group: GroupSession, Description: "Show release notes", Handler: cmdChangelog},
 		{Name: "quit", Group: GroupSession, Description: "Exit Scout", Aliases: []string{"exit"}, Handler: cmdQuit},
 	}
@@ -685,8 +685,25 @@ func cmdSkills(ctx *SessionCtx, args string) error {
 }
 
 func cmdTools(ctx *SessionCtx, args string) error {
-	for _, t := range ctx.Core.Tools() {
-		ctx.Printf("%s\n", cell(padRight(t.Name, 26)+padRight(string(t.Permission), 15)+t.Description, wOf(ctx)))
+	tools := ctx.Core.Tools()
+	byPerm := map[string][]*runtime.Tool{}
+	var order []string
+	for _, t := range tools {
+		p := string(t.Permission)
+		if _, ok := byPerm[p]; !ok {
+			order = append(order, p)
+		}
+		byPerm[p] = append(byPerm[p], t)
+	}
+	// Least to most consequential, so the gate order is obvious at a glance.
+	rank := map[string]int{"read": 0, "analyze": 1, "draft": 2, "mutate_local": 3, "external_action": 4, "financial": 5}
+	sort.SliceStable(order, func(i, j int) bool { return rank[order[i]] < rank[order[j]] })
+	ctx.Printf("Scout has %d tools, grouped by permission.\n", len(tools))
+	for _, p := range order {
+		ctx.Printf("\n**%s**\n", p)
+		for _, t := range byPerm[p] {
+			ctx.Printf("- `%s` — %s\n", t.Name, t.Description)
+		}
 	}
 	return nil
 }

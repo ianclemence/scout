@@ -297,12 +297,19 @@ func TestLoginStagedFlow(t *testing.T) {
 	if len(m.login.methods) != 2 || m.login.methods[0].authType != "account" || m.login.methods[1].authType != "api_key" {
 		t.Fatalf("method list wrong: %+v", m.login.methods)
 	}
-	// Account sign-in has no providers yet: it stays on the method stage and
-	// explains why instead of opening an empty list.
-	nm, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	// Account sign-in has a provider (Anthropic): Enter moves to the account
+	// provider list rather than dead-ending on the method stage.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m = nm.(*model)
-	if m.login == nil || m.login.stage != loginStageMethod || cmd == nil {
-		t.Fatalf("account method should stay on the method stage with a notice: %+v", m.login)
+	if m.login == nil || m.login.stage != loginStageProvider ||
+		len(m.login.filtered) != 1 || m.login.filtered[0].id != "anthropic" || m.login.filtered[0].authType != "account" {
+		t.Fatalf("account sign-in should list Anthropic: %+v", m.login)
+	}
+	// Esc returns to the method stage; choose API key and continue.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = nm.(*model)
+	if m.login == nil || m.login.stage != loginStageMethod {
+		t.Fatalf("esc should return to the method stage: %+v", m.login)
 	}
 	// Move down to "Sign in with an API key" and Enter: the provider stage
 	// opens and lists providers.

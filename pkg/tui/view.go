@@ -164,6 +164,10 @@ func (m *model) renderEntry(e entry) string {
 			head += styleAssistantMeta.Render(" · " + formatElapsed(e.dur))
 		}
 		return head + "\n" + m.assistantBlock(e.text)
+	case eCommand:
+		// Local command results read as Scout's own answer, in the same
+		// wrapped-prose style as a model reply.
+		return " " + styleAssistantName.Render("👷 Scout") + "\n" + m.assistantBlock(e.text)
 	case eTool:
 		return styleTool.Render(wrapPrefixed(e.text, "  ✓ ", w, styleTool))
 	case eNotice:
@@ -219,25 +223,57 @@ func (m *model) welcomeCard() string {
 	if w < 40 {
 		w = 80 // first paint can precede sizing; never wrap for width 0
 	}
-	center := func(s string) string {
-		var lines []string
-		for _, ln := range strings.Split(s, "\n") {
-			lines = append(lines, lipgloss.PlaceHorizontal(w, lipgloss.Center, ln))
-		}
-		return strings.Join(lines, "\n")
-	}
+	center := func(s string) string { return lipgloss.PlaceHorizontal(w, lipgloss.Center, s) }
 	art := styleScoutArt.Render("▓▒░  👷  S C O U T  ░▒▓")
 	tag := styleWelcomeTitle.Render(wrapFirst("Find work worth doing.", minInt(w-2, 64)))
-	cmds := styleWelcomeCmds.Render("  /help           commands & keys\n  /login          connect a provider\n  /model          select conversation model (ctrl+p cycles)\n  /scoped-models  pick models to cycle\n  /profile        who Scout thinks you are")
-	out := center(art) + "\n" + center(tag) + "\n\n" + center(cmds)
+
+	// Get-started hints, aligned as a two-column block and centered as one
+	// composition so the list reads as a unit rather than floating lines.
+	cmds := []struct{ name, desc string }{
+		{"/help", "commands & keys"},
+		{"/login", "connect a provider"},
+		{"/model", "select conversation model"},
+		{"/profile", "who Scout thinks you are"},
+		{"/sources", "work sources & MCP connectors"},
+	}
+	block := make([]string, 0, len(cmds))
+	for _, c := range cmds {
+		pad := strings.Repeat(" ", maxInt(1, 13-len(c.name)))
+		block = append(block, styleWelcomeCmd.Render(c.name)+pad+styleWelcomeDesc.Render(c.desc))
+	}
+	out := center(art) + "\n" + center(tag) + "\n\n" + centerBlock(block, w)
+
 	// Name configured work sources so the startup itself answers "what MCP is
 	// configured"; the /sources picker manages them.
 	if m.st != nil && m.st.Core != nil {
 		if conns, err := m.st.Core.Connections(); err == nil && len(conns) > 0 {
-			out += "\n\n" + center(styleWelcomeSources.Render(connectorsSummary(conns)))
+			src := styleWelcomeSources.Render("Work sources · " + connectorsSummary(conns))
+			out += "\n\n" + centerBlock([]string{src}, w)
 		}
 	}
 	return out
+}
+
+// centerBlock centers a group of lines as a single block: every line shares
+// one left offset, so the block stays internally aligned. Widths are measured
+// with lipgloss so ANSI styling does not skew the centering.
+func centerBlock(lines []string, w int) string {
+	max := 0
+	for _, ln := range lines {
+		if n := lipgloss.Width(ln); n > max {
+			max = n
+		}
+	}
+	off := (w - max) / 2
+	if off < 0 {
+		off = 0
+	}
+	pad := strings.Repeat(" ", off)
+	var out []string
+	for _, ln := range lines {
+		out = append(out, pad+ln)
+	}
+	return strings.Join(out, "\n")
 }
 
 // connectorsSummary renders a one-line work-source digest for the welcome
@@ -270,7 +306,7 @@ func connectorsSummary(conns []runtime.Connection) string {
 	if len(parts) == 0 {
 		return ""
 	}
-	return "· " + strings.Join(parts, "  ·  ")
+	return strings.Join(parts, "  ·  ")
 }
 
 // ---------- footer ----------

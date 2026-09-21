@@ -19,6 +19,7 @@ import (
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/domain"
 	imat "github.com/ianclemence/scout/pkg/match"
+	"github.com/ianclemence/scout/pkg/oauth"
 	"github.com/ianclemence/scout/pkg/profile"
 	"github.com/ianclemence/scout/pkg/registry"
 	"github.com/ianclemence/scout/pkg/secret"
@@ -393,9 +394,14 @@ func (c *Core) Registry() *registry.Registry {
 	}
 }
 
-// Credential resolves an API key: Scout store first, then environment.
+// Credential resolves an API key: Scout store first, then environment. A
+// stored OAuth credential (account sign-in) is refreshed transparently when
+// it is close to expiry, and the fresh token is persisted.
 func (c *Core) Credential(provider string) (string, error) {
 	if s, err := c.LoadSecret("llm:" + provider); err == nil && s != "" {
+		if cred, ok := oauth.Decode(s); ok {
+			return c.resolveOAuthCredential(provider, cred)
+		}
 		return s, nil
 	}
 	env := map[string]string{
@@ -409,6 +415,26 @@ func (c *Core) Credential(provider string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no credential for %s", provider)
+}
+
+// resolveOAuthCredential returns a usable access token, refreshing it when it
+// is expired. A refresh failure is surfaced so the user can sign in again
+// rather than silently using a dead token.
+func (c *Core) resolveOAuthCredential(provider string, cred *oauth.Credential) (string, error) {
+	if !cred.Expired() {
+		return cred.Access, nil
+	}
+	if cred.Refresh == "" {
+		return "", fmt.Errorf("account sign-in for %s expired — run /login %s", provider, provider)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fresh, err := oauth.Refresh(ctx, cred.Refresh)
+	if err != nil {
+		return "", fmt.Errorf("refreshing %s account sign-in failed: %w — run /login %s", provider, err, provider)
+	}
+	_ = c.SaveSecret("llm:"+provider, fresh.Encode())
+	return fresh.Access, nil
 }
 
 func chatEndpoint(c *Core, provider string) string {

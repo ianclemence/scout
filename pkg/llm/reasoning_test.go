@@ -170,3 +170,50 @@ func TestDeepSeekOffDisablesThinking(t *testing.T) {
 		t.Fatalf("deepseek empty default wrong: %v", m)
 	}
 }
+
+func TestAnthropicOAuthAuth(t *testing.T) {
+	// Subscription (OAuth) token: Bearer + Claude Code beta headers, no x-api-key.
+	req, _ := http.NewRequest("POST", "https://example.com", nil)
+	setAnthropicAuth(req, "sk-ant-oat01-abc")
+	if req.Header.Get("Authorization") != "Bearer sk-ant-oat01-abc" {
+		t.Fatalf("oauth token should use Bearer, got %q", req.Header.Get("Authorization"))
+	}
+	if req.Header.Get("x-api-key") != "" {
+		t.Fatal("oauth token must not set x-api-key")
+	}
+	beta := req.Header.Get("anthropic-beta")
+	if !strings.Contains(beta, "oauth-2025-04-20") || !strings.Contains(beta, "claude-code-20250219") {
+		t.Fatalf("oauth beta headers missing: %q", beta)
+	}
+
+	// Plain API key: x-api-key, no Bearer.
+	req2, _ := http.NewRequest("POST", "https://example.com", nil)
+	setAnthropicAuth(req2, "sk-ant-api03-key")
+	if req2.Header.Get("x-api-key") != "sk-ant-api03-key" || req2.Header.Get("Authorization") != "" {
+		t.Fatalf("plain key auth wrong: x-api-key=%q auth=%q", req2.Header.Get("x-api-key"), req2.Header.Get("Authorization"))
+	}
+}
+
+func TestAnthropicSystemForOAuth(t *testing.T) {
+	// Non-OAuth: the system string passes through unchanged.
+	if anthropicSystem("You are Scout.", false) != "You are Scout." {
+		t.Fatal("non-oauth system must pass through")
+	}
+	// OAuth: the Claude Code identity block must come first, then the caller's.
+	sys := anthropicSystem("You are Scout.", true)
+	blocks, ok := sys.([]map[string]string)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("oauth system should be two blocks, got %#v", sys)
+	}
+	if blocks[0]["text"] != "You are Claude Code, Anthropic's official CLI for Claude." {
+		t.Fatalf("first block must be the Claude Code identity, got %q", blocks[0]["text"])
+	}
+	if blocks[1]["text"] != "You are Scout." {
+		t.Fatalf("second block must be the caller system, got %q", blocks[1]["text"])
+	}
+	// OAuth with no caller system: identity block only.
+	single, ok := anthropicSystem("", true).([]map[string]string)
+	if !ok || len(single) != 1 {
+		t.Fatalf("oauth system with no caller text should be one block, got %#v", anthropicSystem("", true))
+	}
+}

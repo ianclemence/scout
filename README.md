@@ -306,7 +306,7 @@ Commands are grouped by job in `/help` and the palette (type `/`).
 | Command | Description |
 |---------|-------------|
 | `/sources` / `/integrations` | Work sources & MCP connectors: list, test, add, token, enable, disable, remove |
-| `/providers`, `/login [provider]`, `/logout` | Credentials: availability, staged sign-in (method → provider → masked key), remove stored key |
+| `/providers`, `/login [provider]`, `/logout` | Credentials: availability, staged sign-in (account → Anthropic Claude Pro/Max OAuth, or API key → masked prompt), remove stored key |
 | `/model [provider/model]`, `/scoped-models` | Conversation model (searchable picker: Tab all/scoped, Ctrl+S default); scope for Ctrl+P cycling |
 | `/thinking [level]` | Reasoning level (interactive picker), mapped to provider controls |
 | `/skills`, `/tools` | Skill workflows, tool registry with permission classes |

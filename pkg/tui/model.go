@@ -16,6 +16,7 @@ import (
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/isession"
 	"github.com/ianclemence/scout/pkg/llm"
+	"github.com/ianclemence/scout/pkg/oauth"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/version"
 )
@@ -29,6 +30,10 @@ const (
 	eNotice
 	eErr
 	eApproval
+	// eCommand is a local slash-command result. It is rendered as Scout's
+	// own response (same prose styling as a model reply), because a command
+	// result is Scout answering, not an aside.
+	eCommand
 )
 
 type entry struct {
@@ -44,6 +49,13 @@ type evMsg struct{ ev runtime.Event }
 type turnDoneMsg struct {
 	final string
 	dur   time.Duration
+}
+
+// oauthResultMsg carries the outcome of a background account sign-in.
+type oauthResultMsg struct {
+	provider string
+	cred     *oauth.Credential
+	err      error
 }
 
 type spinTickMsg struct{}
@@ -90,6 +102,8 @@ type model struct {
 	palFilter string
 	login     *loginFlowUI
 	approval  *pendingApproval
+	// oauthFlow is the live account sign-in flow, if any.
+	oauthFlow *oauth.Flow
 	// connHint is a cached left-footer suffix naming a configured source
 	// that needs authentication (e.g. "Upwork needs auth"). It is refreshed
 	// when sources change, never queried every frame.
@@ -198,6 +212,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Release notes are available on demand (/changelog, `scout update`);
 		// they are deliberately not injected into the welcome card.
 		return m, tea.Println(m.welcomeCard())
+	case oauthResultMsg:
+		return m.finishOAuthLogin(msg)
 	}
 	if m.sel == nil && m.approval == nil {
 		var cmd tea.Cmd
@@ -557,7 +573,9 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 		return m, m.flushCmds()
 	}
 	if s := strings.TrimRight(out.String(), "\n"); s != "" {
-		kind := eNotice
+		// A local command's result is Scout answering: render it in the same
+		// prose style as a model reply. Approvals keep their distinct card.
+		kind := eCommand
 		if strings.HasPrefix(line, "approvals") {
 			kind = eApproval
 		}

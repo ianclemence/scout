@@ -338,6 +338,39 @@ func (p *ollama) Complete(req Request) (string, error) {
 
 // ---- Anthropic ----
 
+// isAnthropicOAuth reports whether a credential is a subscription (OAuth)
+// token. Such tokens use Bearer auth, the Claude Code beta headers, and the
+// Claude Code identity system block instead of x-api-key.
+func isAnthropicOAuth(apiKey string) bool {
+	return strings.Contains(apiKey, "sk-ant-oat")
+}
+
+// setAnthropicAuth applies the correct authentication headers for a plain API
+// key or a subscription (OAuth) token.
+func setAnthropicAuth(hreq *http.Request, apiKey string) {
+	hreq.Header.Set("anthropic-version", "2023-06-01")
+	if isAnthropicOAuth(apiKey) {
+		hreq.Header.Set("Authorization", "Bearer "+apiKey)
+		hreq.Header.Set("anthropic-beta", "claude-code-20250219,oauth-2025-04-20")
+		return
+	}
+	hreq.Header.Set("x-api-key", apiKey)
+}
+
+// anthropicSystem builds the system field. Subscription (OAuth) requests must
+// begin with the Claude Code identity block, followed by the caller's system
+// instructions when present.
+func anthropicSystem(system string, oauth bool) any {
+	if !oauth {
+		return system
+	}
+	blocks := []map[string]string{{"type": "text", "text": "You are Claude Code, Anthropic's official CLI for Claude."}}
+	if strings.TrimSpace(system) != "" {
+		blocks = append(blocks, map[string]string{"type": "text", "text": system})
+	}
+	return blocks
+}
+
 type anthropic struct {
 	apiKey   string
 	model    string
@@ -378,7 +411,7 @@ func (p *anthropic) Complete(req Request) (string, error) {
 		maxTok = 1024
 	}
 	bodyMap := map[string]any{
-		"model": model, "max_tokens": maxTok, "system": req.System, "messages": msgs,
+		"model": model, "max_tokens": maxTok, "system": anthropicSystem(req.System, isAnthropicOAuth(p.apiKey)), "messages": msgs,
 	}
 	// Anthropic extended thinking: budget must be < max_tokens.
 	if budget := anthropicBudget(req.Thinking, maxTok); budget > 0 {
@@ -387,8 +420,7 @@ func (p *anthropic) Complete(req Request) (string, error) {
 	body, _ := json.Marshal(bodyMap)
 	hreq, _ := http.NewRequest("POST", p.base()+"/v1/messages", bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
-	hreq.Header.Set("x-api-key", p.apiKey)
-	hreq.Header.Set("anthropic-version", "2023-06-01")
+	setAnthropicAuth(hreq, p.apiKey)
 	resp, err := p.c.Do(hreq)
 	if err != nil {
 		return "", err
@@ -753,7 +785,7 @@ func (p *anthropic) Stream(ctx context.Context, req Request, emit func(string) e
 		maxTok = 2048
 	}
 	bodyMapA := map[string]any{
-		"model": model, "max_tokens": maxTok, "system": req.System, "messages": msgs, "stream": true,
+		"model": model, "max_tokens": maxTok, "system": anthropicSystem(req.System, isAnthropicOAuth(p.apiKey)), "messages": msgs, "stream": true,
 	}
 	if budget := anthropicBudget(req.Thinking, maxTok); budget > 0 {
 		bodyMapA["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
@@ -765,8 +797,7 @@ func (p *anthropic) Stream(ctx context.Context, req Request, emit func(string) e
 	}
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("Accept", "text/event-stream")
-	hreq.Header.Set("x-api-key", p.apiKey)
-	hreq.Header.Set("anthropic-version", "2023-06-01")
+	setAnthropicAuth(hreq, p.apiKey)
 	resp, err := p.c.Do(hreq)
 	if err != nil {
 		return err
