@@ -97,4 +97,9 @@ CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NU
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, password_hash TEXT NOT NULL, created_at TEXT);
 CREATE TABLE IF NOT EXISTS feedback (id TEXT PRIMARY KEY, opportunity_id TEXT, signal TEXT, note TEXT, created_at TEXT);
 `},
+	{2, `
+CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, name TEXT, provider TEXT, model TEXT, created_at TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS session_messages (session_id TEXT, idx INTEGER, role TEXT, content TEXT, PRIMARY KEY(session_id, idx));
+CREATE INDEX IF NOT EXISTS idx_sess_updated ON sessions(updated_at);
+`},
 }

@@ -10,6 +10,8 @@ import (
 	"net/http"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/ianclemence/scout/internal/version"
 )
 
 type Connector struct {
@@ -24,7 +26,7 @@ type ToolInfo struct {
 }
 
 func (c *Connector) ListTools(ctx context.Context) ([]ToolInfo, error) {
-	client := mcp.NewClient(&mcp.Implementation{Name: "scout", Version: "v0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "scout", Version: version.Version}, nil)
 	t := &mcp.StreamableClientTransport{Endpoint: c.Endpoint}
 	if c.Token != "" {
 		t.HTTPClient = &http.Client{Transport: &authRoundTripper{token: c.Token}}
@@ -46,7 +48,7 @@ func (c *Connector) ListTools(ctx context.Context) ([]ToolInfo, error) {
 }
 
 func (c *Connector) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
-	client := mcp.NewClient(&mcp.Implementation{Name: "scout", Version: "v0.1.0"}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "scout", Version: version.Version}, nil)
 	t := &mcp.StreamableClientTransport{Endpoint: c.Endpoint}
 	if c.Token != "" {
 		t.HTTPClient = &http.Client{Transport: &authRoundTripper{token: c.Token}}

@@ -1,0 +1,398 @@
+// Package isession implements the interactive Scout terminal session:
+// prompt loop, slash commands, streaming render, inline approvals.
+package isession
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/ianclemence/scout/internal/csession"
+	"github.com/ianclemence/scout/internal/domain"
+	"github.com/ianclemence/scout/internal/profile"
+	"github.com/ianclemence/scout/internal/runtime"
+)
+
+// Command is a slash command with Scout-specific utility.
+type Command struct {
+	Name        string
+	Description string
+	ArgHint     string
+	Handler     func(ctx *SessionCtx, args string) error
+}
+
+// SessionCtx carries per-session state for command handlers.
+type SessionCtx struct {
+	Core       *runtime.Core
+	Session    *csession.Session
+	Out        func(format string, a ...any)
+	ResolveOpp func(ref string) (*domain.Opportunity, error)
+	// SetLastOpps records the last listing for index-based selection.
+	SetLastOpps func(opps []domain.Opportunity)
+}
+
+func (s *SessionCtx) Printf(format string, a ...any) { s.Out(format, a...) }
+
+// Registry returns all commands in stable order.
+func Registry() []*Command {
+	cmds := []*Command{
+		{Name: "help", Description: "Show commands", Handler: cmdHelp},
+		{Name: "status", Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
+		{Name: "profile", Description: "Show profile summary", Handler: cmdProfile},
+		{Name: "models", Description: "Show model roles and current assignment", Handler: cmdModels},
+		{Name: "model", Description: "Switch conversation model: /model [provider/model]", ArgHint: "[provider/model]", Handler: cmdModel},
+		{Name: "providers", Description: "Show provider availability", Handler: cmdProviders},
+		{Name: "login", Description: "Store a provider API key (masked): /login <openai|anthropic|deepseek>", ArgHint: "<provider>", Handler: cmdLogin},
+		{Name: "logout", Description: "Remove a stored provider key: /logout <provider>", ArgHint: "<provider>", Handler: cmdLogout},
+		{Name: "sources", Description: "Work sources and capabilities", Handler: cmdSources},
+		{Name: "opportunities", Description: "List opportunities: /opportunities [query] [--status s]", ArgHint: "[query]", Handler: cmdOpps},
+		{Name: "opportunity", Description: "Show detail + evaluation: /opportunity <id>", ArgHint: "<id>", Handler: cmdOpp},
+		{Name: "discover", Description: "Discovery summary over stored opportunities", Handler: cmdDiscover},
+		{Name: "analyze", Description: "Analyze fit: /analyze <id>", ArgHint: "<id>", Handler: cmdAnalyze},
+		{Name: "proposal", Description: "Draft proposal: /proposal <id>", ArgHint: "<id>", Handler: cmdProposal},
+		{Name: "approvals", Description: "Review pending actions: /approvals [approve|reject <id>]", ArgHint: "[approve|reject <id>]", Handler: cmdApprovals},
+		{Name: "applications", Description: "List applications", Handler: cmdApplications},
+		{Name: "pipeline", Description: "Pipeline counts by stage", Handler: cmdPipeline},
+		{Name: "inbox", Description: "Messages needing attention", Handler: cmdInbox},
+		{Name: "feedback", Description: "Record feedback: /feedback <opp-id> <signal> [note]", ArgHint: "<opp-id> <signal>", Handler: cmdFeedback},
+		{Name: "session", Description: "Current session info", Handler: cmdSession},
+		{Name: "sessions", Description: "List sessions", Handler: cmdSessions},
+		{Name: "new", Description: "Start a new session", Handler: cmdNew},
+		{Name: "resume", Description: "Resume a session: /resume <id|name>", ArgHint: "<id|name>", Handler: cmdResume},
+		{Name: "clear", Description: "Clear screen (keeps history)", Handler: cmdClear},
+		{Name: "compact", Description: "Summarize and trim session context", Handler: cmdCompact},
+		{Name: "doctor", Description: "Diagnostics", Handler: cmdDoctor},
+		{Name: "quit", Description: "Exit Scout", Handler: cmdQuit},
+	}
+	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Name < cmds[j].Name })
+	return cmds
+}
+
+func FindCommand(name string) *Command {
+	for _, c := range Registry() {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
+func cmdHelp(ctx *SessionCtx, args string) error {
+	ctx.Printf("Scout commands:\n")
+	for _, c := range Registry() {
+		ctx.Printf("  /%-14s %s\n", c.Name, c.Description)
+	}
+	ctx.Printf("\nAnything else is a request to the agent. Ctrl-C interrupts, Ctrl-D exits.\n")
+	return nil
+}
+
+func cmdStatus(ctx *SessionCtx, args string) error {
+	var opps, pending, apps int
+	_ = ctx.Core.DB.DB.QueryRow(`SELECT COUNT(*) FROM opportunities`).Scan(&opps)
+	_ = ctx.Core.DB.DB.QueryRow(`SELECT COUNT(*) FROM pending_actions WHERE status IN ('draft','pending_approval')`).Scan(&pending)
+	_ = ctx.Core.DB.DB.QueryRow(`SELECT COUNT(*) FROM applications`).Scan(&apps)
+	p, _ := ctx.Core.Profile()
+	ctx.Printf("scout %s · session %s (%s)\n", Version(), ctx.Session.ID[:12], ctx.Session.Name)
+	ctx.Printf("provider %s · model %s\n", ctx.Session.Provider, ctx.Session.Model)
+	ctx.Printf("profile %s · %d skills\n", p.DisplayName, len(p.Skills))
+	ctx.Printf("opportunities %d · pending approvals %d · applications %d\n", opps, pending, apps)
+	return nil
+}
+
+func cmdProfile(ctx *SessionCtx, args string) error {
+	p, err := ctx.Core.Profile()
+	if err != nil {
+		return err
+	}
+	ctx.Printf("Profile: %s — %s\n", p.DisplayName, p.Title)
+	ctx.Printf("Skills: %s\n", strings.Join(p.Skills, ", "))
+	ctx.Printf("Min budget %.0f · min hourly %.0f · max connects/app %d\n", p.MinProjectBudget, p.MinHourlyRate, p.MaxConnectsPerApp)
+	if len(p.ExcludedWork) > 0 {
+		ctx.Printf("Excluded: %s\n", strings.Join(p.ExcludedWork, ", "))
+	}
+	ev, _ := ctx.Core.Evidence(5)
+	ctx.Printf("Evidence items: %d (latest: ", len(ev))
+	for i, e := range ev {
+		if i > 0 {
+			ctx.Printf(", ")
+		}
+		ctx.Printf("%s:%s", e.Kind, e.Reference)
+	}
+	ctx.Printf(")\nEdit via: scout profile subcommands (see scout profile --help).\n")
+	return nil
+}
+
+func cmdOpps(ctx *SessionCtx, args string) error {
+	f := runtime.OpportunityFilter{Limit: 20}
+	parts := strings.Fields(args)
+	for _, p := range parts {
+		if strings.HasPrefix(p, "--status=") {
+			f.Status = strings.TrimPrefix(p, "--status=")
+		} else if p == "--status" {
+			f.Status = "review"
+		} else {
+			f.Query += p + " "
+		}
+	}
+	f.Query = strings.TrimSpace(f.Query)
+	opps, err := ctx.Core.ListOpportunities(f)
+	if err != nil {
+		return err
+	}
+	if ctx.SetLastOpps != nil {
+		ctx.SetLastOpps(opps)
+	}
+	if len(opps) == 0 {
+		ctx.Printf("No opportunities. Add one: scout opportunity add --title ... (or ask me to help draft from a posting).\n")
+		return nil
+	}
+	ctx.Printf("OPPORTUNITIES (%d)\n", len(opps))
+	for i, o := range opps {
+		ctx.Printf("%2d  %s\n    %s · %s\n", i+1, o.Title, shortID(o.ID), o.Status)
+	}
+	return nil
+}
+
+func cmdOpp(ctx *SessionCtx, args string) error {
+	id := firstField(args)
+	if id == "" {
+		return fmt.Errorf("usage: /opportunity <id>")
+	}
+	o, err := ctx.ResolveOpp(id)
+	if err != nil {
+		return err
+	}
+	ctx.Printf("= %s =\n[%s] %s\nBudget %s %.0f–%.0f · credits %d\n\n%s\n", o.Title, o.Source, o.Status,
+		o.BudgetType, o.BudgetMin, o.BudgetMax, o.ConnectsCost, o.Description)
+	ev, err := ctx.Core.LatestEvaluation(o.ID)
+	if err != nil {
+		ctx.Printf("\nNot analyzed yet. Run /analyze %s\n", shortID(o.ID))
+		return nil
+	}
+	ctx.Printf("\nMATCH: %s — %s\n", ev.Recommendation, ev.Reason)
+	for _, d := range ev.Dimensions {
+		ctx.Printf("  %-12s %-12s %s\n", d.Name, d.Rating, d.Detail)
+	}
+	if len(ev.Risks) > 0 {
+		ctx.Printf("Risks: %s\n", strings.Join(ev.Risks, "; "))
+	}
+	if pr, err := ctx.Core.LatestProposal(o.ID); err == nil {
+		ctx.Printf("\nProposal (%s):\n%s\n", pr.Status, pr.CoverLetter)
+	}
+	return nil
+}
+
+func cmdDiscover(ctx *SessionCtx, args string) error {
+	s, err := ctx.Core.RunDiscovery(true)
+	if err != nil {
+		return err
+	}
+	ctx.Printf("Discovery: %d stored, %d pass filters. (External discovery runs through integrations; see /sources.)\n", s.Total, s.Candidates)
+	return nil
+}
+
+func cmdAnalyze(ctx *SessionCtx, args string) error {
+	id := firstField(args)
+	o, err := ctx.ResolveOpp(id)
+	if err != nil {
+		return err
+	}
+	ctx.Printf("Analyzing %s…\n", o.Title)
+	ev, f, err := ctx.Core.Analyze(ctxBg(), o.ID, ctx.Core.EngineForRole("analysis"))
+	if err != nil {
+		return err
+	}
+	ctx.Printf("Filter: pass=%v (%s)\nRecommendation: %s — %s\n", f.Pass, f.Reason, ev.Recommendation, ev.Reason)
+	for _, d := range ev.Dimensions {
+		ctx.Printf("  %-12s %-12s %s\n", d.Name, d.Rating, d.Detail)
+	}
+	return nil
+}
+
+func cmdProposal(ctx *SessionCtx, args string) error {
+	id := firstField(args)
+	o, err := ctx.ResolveOpp(id)
+	if err != nil {
+		return err
+	}
+	ctx.Printf("Drafting proposal for %s…\n", o.Title)
+	pr, err := ctx.Core.DraftProposal(ctxBg(), o.ID, ctx.Core.EngineForRole("proposal"))
+	if err != nil {
+		return err
+	}
+	ctx.Printf("\nPROPOSAL DRAFT\n\n%s\n\nEvidence: %s\nRate %.0f %s\n[approve: /approvals once you request submission]\n",
+		pr.CoverLetter, strings.Join(pr.EvidenceIDs, ", "), pr.Rate, pr.RateType)
+	return nil
+}
+
+func cmdApprovals(ctx *SessionCtx, args string) error {
+	parts := strings.Fields(args)
+	if len(parts) == 2 && (parts[0] == "approve" || parts[0] == "reject") {
+		status := map[string]string{"approve": "approved", "reject": "rejected"}[parts[0]]
+		if err := ctx.Core.SetApprovalStatus(parts[1], status); err != nil {
+			return err
+		}
+		ctx.Printf("%s → %s. (External execution happens through the official integration run step.)\n", parts[1], status)
+		return nil
+	}
+	acts, err := ctx.Core.PendingApprovals()
+	if err != nil {
+		return err
+	}
+	if len(acts) == 0 {
+		ctx.Printf("Nothing awaiting approval.\n")
+		return nil
+	}
+	for _, a := range acts {
+		ctx.Printf("\nACTION REQUIRES APPROVAL\n  %s → %s  [risk %s]\n  %s\n  /approvals approve %s · /approvals reject %s\n",
+			a.ActionType, a.Target, a.RiskLevel, truncate80(a.Payload), shortID(a.ID), shortID(a.ID))
+	}
+	return nil
+}
+
+func cmdApplications(ctx *SessionCtx, args string) error {
+	apps, err := ctx.Core.ListApplications(30)
+	if err != nil {
+		return err
+	}
+	if len(apps) == 0 {
+		ctx.Printf("No applications yet.\n")
+		return nil
+	}
+	for _, a := range apps {
+		ctx.Printf("%s  %s  %s\n", shortID(a.OpportunityID), a.Stage, a.Source)
+	}
+	return nil
+}
+
+func cmdPipeline(ctx *SessionCtx, args string) error {
+	m, err := ctx.Core.Pipeline()
+	if err != nil {
+		return err
+	}
+	if len(m) == 0 {
+		ctx.Printf("Pipeline empty.\n")
+		return nil
+	}
+	for s, n := range m {
+		ctx.Printf("  %-12s %d\n", s, n)
+	}
+	return nil
+}
+
+func cmdInbox(ctx *SessionCtx, args string) error {
+	tool := ctx.Core.FindTool("list_messages")
+	out, err := tool.Handler(ctxBg(), map[string]any{})
+	if err != nil {
+		return err
+	}
+	ctx.Printf("%s\n", out)
+	return nil
+}
+
+func cmdFeedback(ctx *SessionCtx, args string) error {
+	parts := strings.Fields(args)
+	if len(parts) < 2 {
+		return fmt.Errorf("usage: /feedback <opp-id> <signal> [note]")
+	}
+	o, err := ctx.ResolveOpp(parts[0])
+	if err != nil {
+		return err
+	}
+	note := ""
+	if len(parts) > 2 {
+		note = strings.Join(parts[2:], " ")
+	}
+	if err := ctx.Core.AddFeedback(o.ID, parts[1], note); err != nil {
+		return err
+	}
+	ctx.Printf("Feedback recorded (%s). It becomes explicit preference data, not hidden model behavior.\n", parts[1])
+	return nil
+}
+
+func cmdModels(ctx *SessionCtx, args string) error {
+	ctx.Printf("Roles → provider/model (conversation uses session model):\n")
+	for _, role := range []string{"screening", "analysis", "proposal", "conversation", "deep_analysis"} {
+		r := ctx.Core.Cfg.Models[role]
+		mark := ""
+		if role == "conversation" {
+			mark = fmt.Sprintf("  [session: %s/%s]", ctx.Session.Provider, ctx.Session.Model)
+		}
+		ctx.Printf("  %-13s %s/%s%s\n", role, r.Provider, r.Model, mark)
+	}
+	return nil
+}
+
+func cmdSources(ctx *SessionCtx, args string) error {
+	srcs, err := ctx.Core.ListSources()
+	if err != nil {
+		return err
+	}
+	for _, s := range srcs {
+		ctx.Printf("%s (%s) %s enabled=%v caps=%v\n", s.Name, s.Kind, s.Endpoint, s.Enabled, s.Capabilities)
+	}
+	return nil
+}
+
+func cmdProviders(ctx *SessionCtx, args string) error {
+	for _, p := range providerStatus(ctx) {
+		ctx.Printf("  %-18s %s\n", p.name, p.status)
+	}
+	return nil
+}
+
+func cmdSession(ctx *SessionCtx, args string) error {
+	msgs, _ := ctx.Core.SessionMessageCount(ctx.Session.ID)
+	ctx.Printf("session %s (%s) · %s/%s · %d messages\n", ctx.Session.ID[:12], ctx.Session.Name, ctx.Session.Provider, ctx.Session.Model, msgs)
+	return nil
+}
+
+func cmdSessions(ctx *SessionCtx, args string) error {
+	list, err := csession.List(ctx.Core.DB)
+	if err != nil {
+		return err
+	}
+	for _, s := range list {
+		mark := ""
+		if s.ID == ctx.Session.ID {
+			mark = "  ← current"
+		}
+		ctx.Printf("%s  %s  %s/%s%s\n", shortID(s.ID), s.Name, s.Provider, s.Model, mark)
+	}
+	return nil
+}
+
+func cmdClear(ctx *SessionCtx, args string) error { return errClearScreen }
+
+func cmdDoctor(ctx *SessionCtx, args string) error {
+	ctx.Printf("Run `scout doctor` for full diagnostics (provider keys, Ollama, DB, disk).\n")
+	return nil
+}
+
+func cmdQuit(ctx *SessionCtx, args string) error { return errQuit }
+
+// helpers shared with session.go
+func firstField(s string) string {
+	f := strings.Fields(s)
+	if len(f) == 0 {
+		return ""
+	}
+	return f[0]
+}
+
+func shortID(id string) string {
+	if len(id) > 12 {
+		return id[:12]
+	}
+	return id
+}
+
+func truncate80(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) > 300 {
+		return s[:300] + "…"
+	}
+	return s
+}
+
+var _ = profile.Load

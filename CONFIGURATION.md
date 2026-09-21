@@ -1,18 +1,35 @@
 # CONFIGURATION
 
-Precedence: **environment variables > database/app settings > defaults**.
+Precedence: **defaults < config file < environment variables**.
+User data (profile, preferences, sources, secrets) lives in SQLite.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `SCOUT_DATA_DIR` | `~/.local/share/scout` | data dir (DB, key file) |
-| `SCOUT_ADDR` | `127.0.0.1:3210` | web listen address |
-| `SCOUT_MASTER_KEY` | — (generated file) | secret encryption key |
-| `SCOUT_DRY_RUN` | `false` | block external writes |
-| `OLLAMA_HOST` | `http://127.0.0.1:11434` | local model endpoint |
-| `OPENAI_API_KEY` | — | OpenAI provider |
-| `ANTHROPIC_API_KEY` | — | Anthropic provider |
-| `DEEPSEEK_API_KEY` | — | DeepSeek provider (OpenAI-compatible, default model `deepseek-chat`) |
-| `OPENAI_COMPAT_ENDPOINT` / `OPENAI_COMPAT_KEY` | — | generic endpoint (e.g. OpenRouter) |
-| `SCOUT_MODEL_{SCREENING,ANALYSIS,PROPOSAL,CONVERSATION,DEEP}[_PROVIDER]` | ollama / `qwen3:0.6b` | per-role routing |
+Config file: `~/.config/scout/config.json` (or `$SCOUT_CONFIG`):
 
-User configuration (profile, preferences, sources, secrets) lives in SQLite, editable via web UI and CLI. File permissions: data dir `0700`, DB/key `0600`.
+```json
+{
+  "addr": "127.0.0.1:3210",
+  "data_dir": "/home/pi/.local/share/scout",
+  "ollama_host": "http://127.0.0.1:11434",
+  "dry_run": false,
+  "models": {
+    "analysis": {"provider": "openai", "model": "gpt-4o-mini"},
+    "proposal": {"provider": "anthropic", "model": "claude-haiku-4-5"}
+  }
+}
+```
+
+| Variable | Purpose |
+|---|---|
+| `SCOUT_CONFIG` | config file path |
+| `SCOUT_DATA_DIR` | data dir (DB, key file, history) |
+| `SCOUT_ADDR` | MCP HTTP listen address |
+| `SCOUT_MASTER_KEY` | secret encryption key (else generated 0600 file) |
+| `SCOUT_DRY_RUN` | block external writes |
+| `OLLAMA_HOST` | local model endpoint |
+| `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` | provider keys |
+| `OPENAI_COMPAT_ENDPOINT` / `OPENAI_COMPAT_KEY` | generic endpoint |
+| `SCOUT_MODEL_<ROLE>` / `SCOUT_MODEL_<ROLE>_PROVIDER` | per-role override (roles: screening, analysis, proposal, conversation, deep_analysis) |
+
+Interactive: `/model` switches the session conversation model without restart; `/login <provider>` stores a key encrypted (masked prompt, never displayed). `scout config` shows effective config with secrets redacted.
+
+File permissions: data dir `0700`, DB and key file `0600`.

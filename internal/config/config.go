@@ -4,9 +4,11 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type LLMRole struct {
@@ -70,4 +72,76 @@ func envBool(k string, d bool) bool {
 		return d
 	}
 	return b
+}
+
+// FileConfig is the optional JSON config file (~/.config/scout/config.json
+// or $SCOUT_CONFIG). Env vars override file values.
+type FileConfig struct {
+	Addr       string             `json:"addr"`
+	DataDir    string             `json:"data_dir"`
+	OllamaHost string             `json:"ollama_host"`
+	DryRun     *bool              `json:"dry_run"`
+	Models     map[string]LLMRole `json:"models"`
+}
+
+// Load merges defaults <- config file <- environment.
+func Load() Config {
+	cfg := Default()
+	var path string
+	if v := os.Getenv("SCOUT_CONFIG"); v != "" {
+		path = v
+	} else if home, err := os.UserHomeDir(); err == nil {
+		path = filepath.Join(home, ".config", "scout", "config.json")
+	}
+	if path != "" {
+		if raw, err := os.ReadFile(path); err == nil {
+			var fc FileConfig
+			if json.Unmarshal(raw, &fc) == nil {
+				if fc.Addr != "" {
+					cfg.Addr = fc.Addr
+				}
+				if fc.DataDir != "" {
+					cfg.DataDir = fc.DataDir
+					cfg.DBPath = filepath.Join(fc.DataDir, "scout.db")
+				}
+				if fc.OllamaHost != "" {
+					cfg.OllamaHost = fc.OllamaHost
+				}
+				if fc.DryRun != nil {
+					cfg.DryRun = *fc.DryRun
+				}
+				for k, v := range fc.Models {
+					cfg.Models[k] = v
+				}
+			}
+		}
+	}
+	// Env overrides everything (model roles handled below).
+	cfg.Addr = envOr("SCOUT_ADDR", cfg.Addr)
+	cfg.OllamaHost = envOr("OLLAMA_HOST", cfg.OllamaHost)
+	if v := os.Getenv("SCOUT_DATA_DIR"); v != "" {
+		cfg.DataDir = v
+		cfg.DBPath = filepath.Join(v, "scout.db")
+	}
+	if v := os.Getenv("SCOUT_MASTER_KEY"); v != "" {
+		cfg.ScoutEnvKey = v
+	}
+	if _, ok := os.LookupEnv("SCOUT_DRY_RUN"); ok {
+		cfg.DryRun = envBool("SCOUT_DRY_RUN", cfg.DryRun)
+	}
+	// Per-role models: env vars override file values only when set.
+	for role := range cfg.Models {
+		up := strings.ToUpper(role)
+		if p, ok := os.LookupEnv("SCOUT_MODEL_" + up + "_PROVIDER"); ok {
+			r := cfg.Models[role]
+			r.Provider = p
+			cfg.Models[role] = r
+		}
+		if m, ok := os.LookupEnv("SCOUT_MODEL_" + up); ok {
+			r := cfg.Models[role]
+			r.Model = m
+			cfg.Models[role] = r
+		}
+	}
+	return cfg
 }

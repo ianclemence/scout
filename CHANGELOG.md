@@ -1,16 +1,17 @@
 # CHANGELOG
 
+## v0.2.0 (2026-09-21)
+
+Terminal-native redesign. The browser UI was removed; Scout is now a CLI/TUI-first agent.
+
+- Interactive `scout` session: readline prompt, slash commands, streaming responses, tool activity lines, Ctrl-C interrupt, history file
+- ReAct agent runtime over a domain tool registry, with events, bounded retry, session persistence, resume, and LLM-summarized compacting
+- In-session model switching (`/model` selector), provider status, masked `/login` key storage
+- Shared Scout Core (`internal/runtime`) powering CLI, session, and MCP server
+- MCP server renamed to domain tools (`get_profile`, `search_opportunities`, `analyze_opportunity`, `match_opportunity`, `prepare_proposal`, `get_pipeline`, `approve_action`, …)
+- Layered config (defaults < file < env), per-role models, `scout ask --json` for scripting
+- SQLite schema v2 (sessions, session_messages)
+
 ## v0.1.0 (2026-09-21)
 
-Initial release. Local-first work acquisition agent (Go, SQLite, single binary, ARM64):
-
-- Structured professional profile with CV import (txt/md/pdf-text) and evidence store
-- Opportunity model with dedup (source + ID + fingerprint), local search
-- Matching engine: deterministic gates + structured heuristic dimensions + optional LLM enrichment
-- Proposal drafting grounded in evidence, configurable style, client questions
-- Human approval state machine; dry-run mode; Connects guardrails
-- MCP client (official Go SDK, Streamable HTTP) with Upwork capability discovery + normalization
-- Scout MCP server (stdio + Streamable HTTP): status, search, review, match, applications, approvals, pipeline, profile
-- Web UI + JSON API + health/readiness; first-run auth; CLI covering full loop
-- LLM providers: OpenAI, Anthropic, Ollama, OpenAI-compatible; per-role routing
-- Systemd deployment, backup/restore, docs (README/ARCHITECTURE/SECURITY/CONFIGURATION)
+Initial release: profile/CV import, opportunity matching, proposal drafts, approval queue, Upwork MCP client, web UI (removed in v0.2.0).

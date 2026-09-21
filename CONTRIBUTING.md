@@ -1,8 +1,9 @@
 # CONTRIBUTING
 
-1. `go build ./...`, `go test ./...`, `go vet ./...`, `gofmt -l .` — all clean before PR.
-2. Domain stays marketplace-independent; platform logic goes in adapters (`internal/upwork`, future `internal/<platform>`).
-3. No new runtime deps without justification; prefer stdlib.
-4. Never commit secrets, DBs, CVs, or logs. Check `git status` before committing.
-5. Tests for new matching/approval/persistence behavior; mocks for external services — never hit real Upwork writes in tests.
-6. Docs updated if behavior changes (README describes implemented features only).
+1. `go test ./...`, `go vet ./...`, `gofmt -l .` — clean before review.
+2. CLI, session, and MCP server share `internal/runtime`. No duplicated business rules.
+3. Domain stays marketplace-independent; platform logic goes in adapters.
+4. Stdlib first; new deps need justification (Pi-class hardware).
+5. Never commit secrets, DBs, CVs, history files, or logs. Stage explicit paths; check `git status`.
+6. Tests for matching/approval/persistence/loop behavior; `fakeProvider` for agent tests — never hit real marketplace writes.
+7. Docs describe the shipped terminal product only.
