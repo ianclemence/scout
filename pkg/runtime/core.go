@@ -658,7 +658,7 @@ func (c *Core) SourceRegistryWith(extra []sources.OpportunitySource) *sources.Re
 			continue
 		}
 		id := "src-" + strings.ToLower(strings.ReplaceAll(r.name, " ", "-"))
-		reg.Add(sources.NewMCPAdapter(id, r.name, conn))
+		reg.Add(sources.NewAdapterFor(id, r.name, r.endpoint, conn))
 	}
 	for _, s := range extra {
 		reg.Add(s)

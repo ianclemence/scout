@@ -98,7 +98,7 @@ func usage() {
   scout                        interactive session (resume with: scout resume <id>)
   scout ask "question"         one-shot agent turn (scriptable, --json for JSON)
   scout status                 counts + session-relevant state
-  scout discover [--dry-run]   discovery summary (no external writes)
+  scout discover [query]       search connected sources and store new work
   scout opportunities [query]  list opportunities
   scout opportunity show <id>  full detail + evaluation + proposal
   scout opportunity add --title T --description-file F [--skills s]

@@ -25,7 +25,8 @@ pkg/
                      audit log, ReAct agent loop w/ events, skill selection,
                      connector surface (connections.go: list/test/add/auth)
   skills/            18 embedded SKILL.md workflows + registry/selection
-  sources/           OpportunitySource interface: local, MCP, fake adapters
+  sources/           OpportunitySource interface: local, MCP, Upwork dialect adapters
+                     (NewAdapterFor picks a dedicated adapter per connector)
   isession/          slash registry + line-mode loop (non-TTY fallback);
                      scoped-model state (filter/cycle/persist)
   tui/               Bubble Tea session: scrollback transcript, composer,

@@ -9,18 +9,26 @@ import (
 	"github.com/ianclemence/scout/pkg/mcpclient"
 )
 
+// mcpCaller is the subset of the MCP client the adapters use. Using an
+// interface keeps the adapters testable with a fake and lets any MCP transport
+// plug in.
+type mcpCaller interface {
+	ListTools(ctx context.Context) ([]mcpclient.ToolInfo, error)
+	CallTool(ctx context.Context, name string, args map[string]any) (string, error)
+}
+
 // MCPAdapter exposes a generic MCP server as an OpportunitySource.
 // Capabilities come from live tool discovery; unknown tool shapes are
 // reported as unsupported rather than guessed into fake success.
 type MCPAdapter struct {
 	IDValue   string
 	NameValue string
-	Conn      *mcpclient.Connector
+	Conn      mcpCaller
 	caps      []Capability
 	tools     []mcpclient.ToolInfo
 }
 
-func NewMCPAdapter(id, name string, conn *mcpclient.Connector) *MCPAdapter {
+func NewMCPAdapter(id, name string, conn mcpCaller) *MCPAdapter {
 	return &MCPAdapter{IDValue: id, NameValue: name, Conn: conn}
 }
 

@@ -175,19 +175,28 @@ func applyTools(c *Core) []*Tool {
 				if !ok || !src.Has(sources.CapSubmit) {
 					return "", fmt.Errorf("source %q does not support submission — record manually", o.Source)
 				}
-				adapter, ok := src.(*sources.MCPAdapter)
+				adapter, ok := src.(sources.ApplicationSubmitter)
 				if !ok {
 					return "", fmt.Errorf("source %q submission is not wired to an executable adapter", o.Source)
 				}
-				// The last mile: dispatch to the source's discovered submit tool.
-				// The approval gate above already ran; this executes exactly what
-				// the human approved.
+				// The last mile: dispatch to the source's own submit path. The
+				// approval gate above already ran; this executes exactly what the
+				// human approved. Include the prepared proposal so Upwork can create
+				// the preview with the cover letter and bid.
 				callArgs := map[string]any{
 					"job_id": o.SourceOppID, "id": o.SourceOppID,
 					"opportunity_id": o.SourceOppID,
 				}
 				if pid := str(args, "proposal_id"); pid != "" {
 					callArgs["proposal_id"] = pid
+				}
+				if pr, perr := c.LatestProposal(oid); perr == nil {
+					if pr.CoverLetter != "" {
+						callArgs["cover_letter"] = pr.CoverLetter
+					}
+					if pr.Rate > 0 {
+						callArgs["charged_amount"] = pr.Rate
+					}
 				}
 				if raw, ok := args["fields"]; ok {
 					callArgs["fields"] = raw
@@ -214,19 +223,28 @@ func applyTools(c *Core) []*Tool {
 				}
 				// Prefer an explicit source argument; otherwise try each enabled
 				// source advertising messaging. First success wins.
-				var targets []*sources.MCPAdapter
+				var senders []struct {
+					name string
+					send sources.MessageSender
+				}
+				add := func(s sources.OpportunitySource) {
+					if ms, ok := s.(sources.MessageSender); ok {
+						senders = append(senders, struct {
+							name string
+							send sources.MessageSender
+						}{s.Name(), ms})
+					}
+				}
 				if sid := str(args, "source"); sid != "" {
-					if a, ok := c.MCPAdapterFor(normalizeSourceID(sid)); ok {
-						targets = append(targets, a)
+					if s, ok := c.findSource(c.SourceRegistry(), sid); ok {
+						add(s)
 					}
 				} else {
 					for _, s := range c.SourceRegistry().WithCapability(sources.CapMessage) {
-						if a, ok := s.(*sources.MCPAdapter); ok {
-							targets = append(targets, a)
-						}
+						add(s)
 					}
 				}
-				if len(targets) == 0 {
+				if len(senders) == 0 {
 					return "", fmt.Errorf("no connected source supports messaging — draft saved, send manually")
 				}
 				callArgs := map[string]any{"to": str(args, "to"), "body": str(args, "body")}
@@ -234,10 +252,10 @@ func applyTools(c *Core) []*Tool {
 					callArgs["thread_id"] = tid
 				}
 				var lastErr error
-				for _, a := range targets {
-					out, err := a.SendMessage(ctx, callArgs)
+				for _, a := range senders {
+					out, err := a.send.SendMessage(ctx, callArgs)
 					if err == nil {
-						return okResult(map[string]any{"sent": true, "source": a.Name(), "response": out}), nil
+						return okResult(map[string]any{"sent": true, "source": a.name, "response": out}), nil
 					}
 					lastErr = err
 				}

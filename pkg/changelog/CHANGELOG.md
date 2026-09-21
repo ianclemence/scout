@@ -3,6 +3,27 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.10.0] - 2026-09-21
+
+Upwork adapter (live discovery).
+
+- **Scout now searches Upwork for real.** A dedicated Upwork dialect adapter
+  resolves the freelancer `org_uid` from `list_accounts`, calls `find_jobs`
+  with `{action:"search", org_uid, params:{…}}`, and normalizes the results
+  into Scout's opportunity model — title, description, hourly/fixed budget,
+  skills, URL, category, and a stable fingerprint. `/discover` and
+  `scout discover <query>` store live listings, so `/opportunities` →
+  `/analyze` → `/proposal` works without manual `opportunity add`.
+- **Listing detail** maps to `find_jobs {action:"get"}` (contract terms,
+  category, client country).
+- **Submit and message** route through Upwork's `manage_proposals` +
+  `confirm_preview` and `send_message`, still behind Scout's approval gate.
+- **A dialect seam, not a one-off.** `sources.NewAdapterFor` picks a dedicated
+  adapter by connector; everything else uses the generic MCP adapter. LinkedIn,
+  JobsDB, and other providers add an adapter + matcher without touching the
+  generic path, the agent, or the tools.
+- Discovery tool gains `title`, `job_type`, `rate_min`, and `rate_max`.
+
 ## [0.9.0] - 2026-09-21
 
 MCP account sign-in.

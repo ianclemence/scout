@@ -25,12 +25,29 @@ const (
 
 type SearchFilter struct {
 	Query        string
+	Title        string // match the job title only (Upwork-style)
 	Skills       []string
 	Location     string
 	Remote       string
+	JobType      string // "hourly" or "fixed"
 	MinBudget    float64
+	MinRate      float64
+	MaxRate      float64
 	ContractType string
 	Limit        int
+}
+
+// ApplicationSubmitter is implemented by sources that can submit an
+// application through their own tool. Core enforces the approval gate before
+// calling it.
+type ApplicationSubmitter interface {
+	SubmitApplication(ctx context.Context, args map[string]any) (string, error)
+}
+
+// MessageSender is implemented by sources that can send a message through
+// their own tool. Core enforces the approval gate before calling it.
+type MessageSender interface {
+	SendMessage(ctx context.Context, args map[string]any) (string, error)
 }
 
 // Health describes source connectivity.

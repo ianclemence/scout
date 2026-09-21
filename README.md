@@ -260,7 +260,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `scout` | Interactive session (resume: `scout resume <id>`) |
 | `scout ask [--json] "…"` | One agent turn, scriptable |
 | `scout status` | Profile, counts, state |
-| `scout discover` | Discovery summary (no external writes) |
+| `scout discover [query]` | Search connected sources and store new work |
 | `scout opportunities [query]` | List stored opportunities |
 | `scout opportunity show <id>` | Detail + evaluation + proposal |
 | `scout opportunity add --title T --description-file F` | Add a posting |
@@ -371,7 +371,7 @@ Enabled with user lingering, so it starts at device boot without login. Never ex
 
 ## MCP
 
-**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, and OAuth 2.1 account sign-in (discovery + dynamic client registration + PKCE) with encrypted tokens refreshed automatically. `/sources` (CLI: `scout integrations`) is the single connector surface: it lists every configured source with its auth state and discovered capabilities, and can sign in, test, add, enable/disable, or remove one. A dead endpoint is bounded by a hard timeout and reports `unavailable` — it can never hang a turn. Upwork is the first work source; other job platforms fit the same normalized model as they gain usable official interfaces. The domain never assumes one platform's concepts.
+**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, and OAuth 2.1 account sign-in (discovery + dynamic client registration + PKCE) with encrypted tokens refreshed automatically. `/sources` (CLI: `scout integrations`) is the single connector surface. **Upwork** is the first full adapter: Scout resolves your freelancer `org_uid`, searches `find_jobs`, normalizes live listings into the pipeline, reads job detail, and routes proposal/message actions through Upwork's own tools behind the approval gate. Other MCP servers use the generic adapter; new providers (LinkedIn, JobsDB, …) plug in as additional adapters without changing the agent or the tool surface. A dead endpoint is bounded by a hard timeout and reports `unavailable` — it can never hang a turn. The domain never assumes one platform's concepts.
 
 **Capability, then action** — a source's capabilities come from its own tool list, never from assumptions. When a source exposes a submit or message tool, Scout dispatches to it only after an approval is granted; when it does not, Scout says so instead of pretending.
 

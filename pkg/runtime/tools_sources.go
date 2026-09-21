@@ -44,14 +44,15 @@ func sourceTools(c *Core) []*Tool {
 	return []*Tool{
 		{Name: "discover_opportunities", Permission: PermRead, ReadOnly: true,
 			Description: "Search one or all connected sources. Returns normalized opportunities; per-source failures are isolated, never fatal.",
-			ArgsHint:    `{"query": "go api", "skills": ["go"], "sources": ["upwork"], "limit": 20}`,
-			ArgsSchema:  map[string]string{"query": "string", "skills": "string[]", "sources": "string[]", "location": "string", "remote": "string", "min_budget": "number", "limit": "number"},
+			ArgsHint:    `{"query": "go api", "title": "Golang", "skills": ["go"], "job_type": "hourly", "rate_min": 30, "sources": ["upwork"], "limit": 20}`,
+			ArgsSchema:  map[string]string{"query": "string", "title": "string", "skills": "string[]", "sources": "string[]", "location": "string", "remote": "string", "job_type": "string", "min_budget": "number", "rate_min": "number", "rate_max": "number", "limit": "number"},
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
 				reg := c.SourceRegistry()
 				f := sources.SearchFilter{
-					Query: str(args, "query"), Skills: strList(args, "skills"),
-					Location: str(args, "location"), Remote: str(args, "remote"),
-					MinBudget: numf(args, "min_budget"), Limit: num(args, "limit", 20),
+					Query: str(args, "query"), Title: str(args, "title"), Skills: strList(args, "skills"),
+					Location: str(args, "location"), Remote: str(args, "remote"), JobType: str(args, "job_type"),
+					MinBudget: numf(args, "min_budget"), MinRate: numf(args, "rate_min"), MaxRate: numf(args, "rate_max"),
+					Limit: num(args, "limit", 20),
 				}
 				var out []map[string]any
 				var warnings []string

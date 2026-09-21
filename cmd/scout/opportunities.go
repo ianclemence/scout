@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/runtime"
+	"github.com/ianclemence/scout/pkg/sources"
 	"github.com/ianclemence/scout/pkg/version"
 )
 
@@ -26,17 +28,29 @@ func statusCmd(c *runtime.Core) error {
 }
 
 func discoverCmd(c *runtime.Core, args []string) error {
-	dry := true
+	query := ""
 	for _, a := range args {
-		if a == "--live" {
-			dry = false
+		if !strings.HasPrefix(a, "--") {
+			query = strings.TrimSpace(query + " " + a)
 		}
 	}
-	s, err := c.RunDiscovery(dry)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	res, err := c.DiscoverSources(ctx, sources.SearchFilter{Query: query, Limit: 10})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("discovered=%d candidates=%d dry_run=%v (no external writes)\n", s.Total, s.Candidates, s.DryRun)
+	if len(res.Sources) == 0 {
+		fmt.Println("No connected sources. Add one: scout integrations add Upwork https://mcp.upwork.com/mcp")
+		return nil
+	}
+	fmt.Printf("searched=%d found=%d stored=%d\n", len(res.Sources), res.Found, res.Stored)
+	for _, w := range res.Warnings {
+		fmt.Println("  ! " + w)
+	}
+	if res.Stored > 0 {
+		fmt.Println("Review them with: scout opportunities")
+	}
 	return nil
 }
 

@@ -468,15 +468,11 @@ func CapabilityLabels(caps []string) string {
 	return strings.Join(out, ", ")
 }
 
-// MCPAdapterFor builds a live adapter for a configured source, used by tools
-// that need to call the source rather than describe it.
-func (c *Core) MCPAdapterFor(id string) (*sources.MCPAdapter, bool) {
-	s, ok := c.SourceRegistry().Get(id)
-	if !ok {
-		return nil, false
-	}
-	a, ok := s.(*sources.MCPAdapter)
-	return a, ok
+// SourceFor resolves a configured source (id, name, or prefix) to its live
+// adapter, whatever dialect it uses. Tools that need to call a source rather
+// than describe it use this.
+func (c *Core) SourceFor(ref string) (sources.OpportunitySource, bool) {
+	return c.findSource(c.SourceRegistry(), ref)
 }
 
 // findSource resolves a source reference (id, name, or case-insensitive
