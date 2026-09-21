@@ -38,16 +38,28 @@ type ReplState struct {
 	Sess     *csession.Session
 	LastOpps []domain.Opportunity
 	History  []llm.Message // in-memory conversation context for the agent
+	// Out receives command output. Defaults to stdout printing.
+	Out func(format string, a ...any)
 }
 
 func (r *ReplState) ctx() *SessionCtx {
+	out := r.Out
+	if out == nil {
+		out = func(f string, a ...any) { fmt.Printf(f, a...) }
+	}
 	return &SessionCtx{Core: r.Core, Session: r.Sess,
-		Out:        func(f string, a ...any) { fmt.Printf(f, a...) },
+		Out:        out,
 		ResolveOpp: r.resolveOpp,
 		SetLastOpps: func(opps []domain.Opportunity) {
 			r.LastOpps = opps
 		},
 	}
+}
+
+// Dispatch runs a slash command line (without leading "/") against the state.
+// It is shared by the line-mode loop and the full-screen TUI.
+func Dispatch(st *ReplState, line string) error {
+	return runSlash(st, line)
 }
 
 // resolveOpp accepts full id, id prefix, or 1-based index into last listing.
