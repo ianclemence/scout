@@ -3,6 +3,13 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.5] - 2026-09-21
+
+Stream-hygiene release.
+
+- The ReAct tool block is never streamed: the live preview shows only the visible reply, not the tool JSON.
+- `source_health` (and source probes) are bounded to 8s so a dead or slow MCP endpoint cannot stall a turn.
+
 ## [0.7.4] - 2026-09-21
 
 Activity and log-hygiene release.
