@@ -22,6 +22,7 @@ import (
 	"github.com/ianclemence/scout/internal/runtime"
 	"github.com/ianclemence/scout/internal/secret"
 	"github.com/ianclemence/scout/internal/store"
+	"github.com/ianclemence/scout/internal/tui"
 	"github.com/ianclemence/scout/internal/upwork"
 	"github.com/ianclemence/scout/internal/version"
 )
@@ -182,7 +183,24 @@ func runInteractive(resumeRef string) error {
 			return err
 		}
 	}
+	st := &isession.ReplState{Core: c, Sess: sess}
+	if msgs, err := csession.LoadMessages(c.DB, sess.ID, 20); err == nil {
+		for _, m := range msgs {
+			st.History = append(st.History, llm.Message{Role: m.Role, Content: m.Content})
+		}
+	}
+	if isTerminal() {
+		return tui.Run(st)
+	}
 	return isession.Run(c, sess)
+}
+
+func isTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
 }
 
 // ---------- one-shot commands ----------
@@ -432,12 +450,25 @@ func profileCmd(c *runtime.Core, args []string) error {
 }
 
 func providersCmd(c *runtime.Core) error {
-	fmt.Printf("roles:\n")
+	fmt.Printf("%-16s %-10s %-6s %s\n", "PROVIDER", "CONFIGURED", "MODELS", "DETAIL / ROLES")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	for _, p := range c.ProviderStatus(ctx) {
+		mark := "no"
+		if p.Configured {
+			mark = "yes"
+		}
+		roles := ""
+		if len(p.Roles) > 0 {
+			roles = " [" + strings.Join(p.Roles, ",") + "]"
+		}
+		fmt.Printf("%-16s %-10s %-6d %s%s\n", p.Provider, mark, p.Models, p.Detail, roles)
+	}
+	fmt.Printf("\nroles:\n")
 	for _, role := range []string{"screening", "analysis", "proposal", "conversation", "deep_analysis"} {
 		r := c.Cfg.Models[role]
 		fmt.Printf("  %-13s %s/%s\n", role, r.Provider, r.Model)
 	}
-	fmt.Printf("credentials: OPENAI_API_KEY, ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY, OPENAI_COMPAT_ENDPOINT/KEY, OLLAMA_HOST, or `scout login <provider>`\n")
 	return nil
 }
 

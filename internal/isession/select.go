@@ -2,49 +2,12 @@ package isession
 
 import (
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
 	"github.com/ianclemence/scout/internal/csession"
 	"github.com/ianclemence/scout/internal/llm"
 )
-
-// providerStatus reports configured availability without revealing secrets.
-type provInfo struct {
-	name   string
-	status string
-}
-
-func providerStatus(ctx *SessionCtx) []provInfo {
-	has := func(env string, secretKey string) bool {
-		if os.Getenv(env) != "" {
-			return true
-		}
-		if s, err := ctx.Core.LoadSecret(secretKey); err == nil && s != "" {
-			return true
-		}
-		return false
-	}
-	ollamaUp := "unreachable"
-	if probeOllama(ctx.Core.Cfg.OllamaHost) {
-		ollamaUp = "reachable (" + ctx.Core.Cfg.OllamaHost + ")"
-	}
-	yn := func(b bool) string {
-		if b {
-			return "key configured"
-		}
-		return "no key — /login"
-	}
-	return []provInfo{
-		{"ollama", ollamaUp},
-		{"openai", yn(has("OPENAI_API_KEY", "llm:openai"))},
-		{"anthropic", yn(has("ANTHROPIC_API_KEY", "llm:anthropic"))},
-		{"deepseek", yn(has("DEEPSEEK_API_KEY", "llm:deepseek"))},
-		{"moonshot", yn(has("MOONSHOT_API_KEY", "llm:moonshot"))},
-		{"openai_compatible", os.Getenv("OPENAI_COMPAT_ENDPOINT")},
-	}
-}
 
 func cmdLogin(ctx *SessionCtx, args string) error {
 	p := strings.ToLower(firstField(args))
@@ -224,5 +187,3 @@ func truncateStr(s string, n int) string {
 	}
 	return s[:n]
 }
-
-var _ = os.Getenv

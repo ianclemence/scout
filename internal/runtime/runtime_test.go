@@ -125,6 +125,30 @@ func TestReActUnknownToolContinues(t *testing.T) {
 	}
 }
 
+func TestProviderStatus(t *testing.T) {
+	c := testCore(t)
+	t.Setenv("OPENAI_API_KEY", "env-key")
+	ctx := context.Background()
+	got := map[string]ProviderSummary{}
+	for _, p := range c.ProviderStatus(ctx) {
+		got[p.Provider] = p
+	}
+	if !got["openai"].Configured {
+		t.Fatal("openai env key not detected")
+	}
+	if got["moonshot"].Configured {
+		t.Fatal("moonshot should be unconfigured")
+	}
+	if !strings.Contains(got["moonshot"].Detail, "/login") {
+		t.Fatalf("missing guidance: %q", got["moonshot"].Detail)
+	}
+	for _, p := range c.ProviderStatus(ctx) {
+		if p.Provider == "" || p.Detail == "" {
+			t.Fatal("incomplete summary")
+		}
+	}
+}
+
 func TestCredentialPrecedence(t *testing.T) {
 	c := testCore(t)
 	t.Setenv("OPENAI_API_KEY", "env-key")

@@ -104,10 +104,9 @@ This keeps the Scout MCP server listening on `127.0.0.1:3210` across reboots (wi
 scout
 ```
 
-```text
-Scout v0.3.0 · ollama/qwen3:0.6b · session sess-…
-Type /help for commands, or just ask. Ctrl-C interrupts · Ctrl-D exits.
+A full-screen session opens: committed conversation prints into your terminal's scrollback (native scrolling keeps everything), while the live dock at the bottom shows the streaming preview, a bordered prompt box, and a two-line footer — session state left, `(local|cloud) provider/model` right, key hints below. `You` and `Scout` messages are labeled and styled distinctly; assistant markdown renders cleanly; approvals render as prominent risk cards. Type `/` for the command palette, `Ctrl+L` for the registry-backed model picker, `Esc` to abort a turn.
 
+```text
 scout› /status
 ```
 
@@ -267,7 +266,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `/session`, `/sessions`, `/new`, `/resume`, `/compact`, `/clear` | Session lifecycle |
 | `/doctor`, `/quit` | Diagnostics, exit |
 
-Anything without a slash is a request to the agent. Ctrl-C interrupts a turn; Ctrl-D exits.
+Anything without a slash is a request to the agent. Piped (non-TTY) input falls back to the classic line loop automatically.
 
 ---
 

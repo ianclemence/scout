@@ -393,8 +393,13 @@ func cmdSources(ctx *SessionCtx, args string) error {
 }
 
 func cmdProviders(ctx *SessionCtx, args string) error {
-	for _, p := range providerStatus(ctx) {
-		ctx.Printf("  %-18s %s\n", p.name, p.status)
+	ctx.Printf("Provider   Configured  Models  Roles\n")
+	for _, p := range ctx.Core.ProviderStatus(ctxBg()) {
+		mark := "✗"
+		if p.Configured {
+			mark = "✓"
+		}
+		ctx.Printf("  %-12s %s  %-8d %s\n  └ %s\n", p.Provider, mark, p.Models, strings.Join(p.Roles, ","), p.Detail)
 	}
 	return nil
 }

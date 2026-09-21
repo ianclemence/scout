@@ -8,6 +8,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -416,6 +417,78 @@ func chatEndpoint(c *Core, provider string) string {
 		return c.Cfg.OllamaHost
 	}
 	return ""
+}
+
+// ---------- provider status ----------
+
+// ProviderSummary reports, per provider, whether it is usable and why.
+type ProviderSummary struct {
+	Provider   string
+	Configured bool
+	Detail     string // "key in store", "key in env", "no key — /login", "reachable …", "unreachable"
+	Models     int
+	Roles      []string
+}
+
+// ProviderStatus merges credentials, registry, and role assignments.
+func (c *Core) ProviderStatus(ctx context.Context) []ProviderSummary {
+	reg := c.Registry()
+	rolesByProv := map[string][]string{}
+	for _, role := range []string{"screening", "analysis", "proposal", "conversation", "deep_analysis"} {
+		if r, ok := c.Cfg.Models[role]; ok {
+			rolesByProv[r.Provider] = append(rolesByProv[r.Provider], role)
+		}
+	}
+	counts := map[string]int{}
+	sources := map[string]map[string]bool{}
+	for _, m := range reg.List(ctx, "") {
+		counts[m.Provider]++
+		if sources[m.Provider] == nil {
+			sources[m.Provider] = map[string]bool{}
+		}
+		sources[m.Provider][m.Source] = true
+	}
+	var out []ProviderSummary
+	for _, p := range []string{"ollama", "openai", "anthropic", "deepseek", "moonshot", "openai_compatible"} {
+		s := ProviderSummary{Provider: p, Roles: rolesByProv[p]}
+		switch p {
+		case "ollama":
+			if probeOllama(c.Cfg.OllamaHost) {
+				s.Configured = true
+				s.Detail = "reachable " + c.Cfg.OllamaHost
+			} else {
+				s.Detail = "unreachable " + c.Cfg.OllamaHost
+			}
+		default:
+			if sec, err := c.LoadSecret("llm:" + p); err == nil && sec != "" {
+				s.Configured = true
+				s.Detail = "key in credential store"
+			} else if env := map[string]string{"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "moonshot": "MOONSHOT_API_KEY", "openai_compatible": "OPENAI_COMPAT_KEY"}[p]; env != "" && os.Getenv(env) != "" {
+				s.Configured = true
+				s.Detail = "key in environment (" + env + ")"
+			} else {
+				s.Detail = "no key — /login " + p
+			}
+		}
+		s.Models = counts[p]
+		out = append(out, s)
+	}
+	return out
+}
+
+func probeOllama(host string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(host, "/")+"/api/tags", nil)
+	if err != nil {
+		return false
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode < 500
 }
 
 // ---------- sessions helper ----------
