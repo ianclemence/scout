@@ -62,8 +62,14 @@ func captureBody(t *testing.T, provider, model, thinking string) map[string]any 
 }
 
 func TestThinkingMapping(t *testing.T) {
-	if b := captureBody(t, "moonshot", "kimi-k3", "high"); b["reasoning_effort"] != "max" {
-		t.Fatalf("k3 high should map to max, got %v", b)
+	if b := captureBody(t, "moonshot", "kimi-k3", "high"); b["reasoning_effort"] != "high" {
+		t.Fatalf("k3 high should map to high, got %v", b)
+	}
+	if b := captureBody(t, "moonshot", "kimi-k3", "xhigh"); b["reasoning_effort"] != "max" {
+		t.Fatalf("k3 xhigh should map to max, got %v", b)
+	}
+	if b := captureBody(t, "moonshot", "kimi-k3", "minimal"); b["reasoning_effort"] != "low" {
+		t.Fatalf("k3 minimal should map to low, got %v", b)
 	}
 	if b := captureBody(t, "moonshot", "kimi-k2.6", "off"); b["thinking"] == nil {
 		t.Fatal("k2 off should send thinking disabled")

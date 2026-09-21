@@ -87,32 +87,95 @@ type openaiCompat struct {
 	think func(model, level string, body map[string]any)
 }
 
-// Normalized thinking levels.
+// Normalized thinking levels, ordered from least to most reasoning. This set
+// matches the reference agents (off/minimal/low/medium/high/xhigh/max) so the
+// same choices behave the same way across surfaces.
 const (
-	ThinkOff    = "off"
-	ThinkLow    = "low"
-	ThinkMedium = "medium"
-	ThinkHigh   = "high"
-	ThinkMax    = "max"
+	ThinkOff     = "off"
+	ThinkMinimal = "minimal"
+	ThinkLow     = "low"
+	ThinkMedium  = "medium"
+	ThinkHigh    = "high"
+	ThinkXHigh   = "xhigh"
+	ThinkMax     = "max"
 )
+
+// ThinkLevels is the ordered level set the UI offers.
+var ThinkLevels = []string{ThinkOff, ThinkMinimal, ThinkLow, ThinkMedium, ThinkHigh, ThinkXHigh, ThinkMax}
 
 func normThink(s string) string {
 	switch s {
-	case ThinkLow, ThinkMedium, ThinkHigh, ThinkMax, ThinkOff:
+	case ThinkOff, ThinkMinimal, ThinkLow, ThinkMedium, ThinkHigh, ThinkXHigh, ThinkMax:
 		return s
 	default:
 		return ""
 	}
 }
 
+// ThinkMapping returns the concrete request control a level maps to for a
+// provider, so the UI can show exactly what a choice does.
+func ThinkMapping(provider, level string) string {
+	lvl := normThink(level)
+	if lvl == "" {
+		return ""
+	}
+	switch provider {
+	case "openai", "openai_compatible":
+		if lvl == ThinkOff {
+			return "no reasoning_effort"
+		}
+		effort := map[string]string{ThinkMinimal: "minimal", ThinkLow: "low", ThinkMedium: "medium", ThinkHigh: "high", ThinkXHigh: "high", ThinkMax: "high"}[lvl]
+		return "reasoning_effort=" + effort
+	case "deepseek":
+		if lvl == ThinkOff {
+			return "thinking disabled"
+		}
+		if lvl == ThinkHigh || lvl == ThinkXHigh || lvl == ThinkMax {
+			return "thinking.enabled + reasoning_effort=high"
+		}
+		return "thinking.enabled"
+	case "moonshot":
+		return "thinking/ reasoning_effort (Kimi family)"
+	case "ollama":
+		if lvl == ThinkOff {
+			return "think=false"
+		}
+		return "think=true"
+	}
+	return ""
+}
+
+// ThinkDescription returns a human description of a level, including what it
+// maps to for the given provider so the choice is never mysterious.
+func ThinkDescription(provider, level string) string {
+	base := map[string]string{
+		ThinkOff:     "No reasoning — fastest, direct answers",
+		ThinkMinimal: "Very brief reasoning",
+		ThinkLow:     "Light reasoning",
+		ThinkMedium:  "Moderate reasoning",
+		ThinkHigh:    "Deep reasoning",
+		ThinkXHigh:   "Extra-high reasoning",
+		ThinkMax:     "Maximum reasoning",
+	}[level]
+	if m := ThinkMapping(provider, level); m != "" {
+		if base == "" {
+			return m
+		}
+		return base + " · " + m
+	}
+	return base
+}
+
 // thinkOpenAI maps to reasoning_effort (gpt-5 family: minimal/low/medium/high).
 func thinkOpenAI(model, level string, body map[string]any) {
 	switch normThink(level) {
+	case ThinkMinimal:
+		body["reasoning_effort"] = "minimal"
 	case ThinkLow:
 		body["reasoning_effort"] = "low"
 	case ThinkMedium:
 		body["reasoning_effort"] = "medium"
-	case ThinkHigh, ThinkMax:
+	case ThinkHigh, ThinkXHigh, ThinkMax:
 		body["reasoning_effort"] = "high"
 	}
 }
@@ -122,9 +185,9 @@ func thinkDeepSeek(model, level string, body map[string]any) {
 	switch normThink(level) {
 	case ThinkOff:
 		// omit: default non-thinking behavior
-	case ThinkLow, ThinkMedium:
+	case ThinkMinimal, ThinkLow, ThinkMedium:
 		body["thinking"] = map[string]string{"type": "enabled"}
-	case ThinkHigh, ThinkMax:
+	case ThinkHigh, ThinkXHigh, ThinkMax:
 		body["thinking"] = map[string]string{"type": "enabled"}
 		body["reasoning_effort"] = "high"
 	}
@@ -136,9 +199,9 @@ func thinkMoonshot(model, level string, body map[string]any) {
 	m := strings.ToLower(model)
 	if strings.HasPrefix(m, "kimi-k3") {
 		switch normThink(level) {
-		case ThinkOff, ThinkLow:
+		case ThinkOff, ThinkMinimal, ThinkLow:
 			body["reasoning_effort"] = "low"
-		case ThinkMedium:
+		case ThinkMedium, ThinkHigh:
 			body["reasoning_effort"] = "high"
 		default:
 			body["reasoning_effort"] = "max"

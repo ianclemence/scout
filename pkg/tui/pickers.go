@@ -1,13 +1,17 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
+	"github.com/ianclemence/scout/pkg/llm"
+	"github.com/ianclemence/scout/pkg/runtime"
 )
 
 // shortID trims an id to a readable prefix.
@@ -16,6 +20,14 @@ func shortID(id string) string {
 		return id[:12]
 	}
 	return id
+}
+
+// firstLine returns the first line of s (used for skill summaries).
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
 }
 
 // This file holds the general interactive pickers that make Scout's slash
@@ -285,27 +297,157 @@ func (m *model) openApprovals() {
 	m.picker = p
 }
 
-// ---------- thinking picker (/thinking) ----------
-
-var thinkingLevels = []string{"off", "low", "medium", "high", "max"}
-
-var thinkingDesc = map[string]string{
-	"off":    "No reasoning — direct answers",
-	"low":    "Light reasoning",
-	"medium": "Moderate reasoning",
-	"high":   "Deep reasoning",
-	"max":    "Maximum reasoning",
+// openOpportunities opens the opportunity picker. Selecting one opens a
+// second-level action picker: analyze fit, draft a proposal, or show detail.
+func (m *model) openOpportunities() {
+	opps, err := m.st.Core.ListOpportunities(runtime.OpportunityFilter{Limit: 50})
+	if err != nil {
+		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
+		return
+	}
+	if len(opps) == 0 {
+		m.println(entry{kind: eNotice, text: "No opportunities yet. Add one with: scout opportunity add --title … --description-file …", at: time.Now()})
+		return
+	}
+	var items []pickItem
+	for _, o := range opps {
+		items = append(items, pickItem{
+			label:  o.Title,
+			detail: o.Source + " · " + o.Status,
+			value:  o.ID,
+		})
+	}
+	m.picker = newListPicker("Opportunities", "enter opens actions", "enter actions", items, func(id string) string {
+		m.openOpportunityActions(id)
+		return ""
+	})
 }
 
+// openOpportunityActions shows the analyze/propose/detail choices for one
+// opportunity.
+func (m *model) openOpportunityActions(id string) {
+	o, err := m.st.Core.GetOpportunity(id)
+	if err != nil {
+		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
+		return
+	}
+	acts := []pickItem{
+		{label: "Analyze fit", detail: "score skills, budget, scope, risks", value: "analyze"},
+		{label: "Draft proposal", detail: "grounded in your resume", value: "proposal"},
+		{label: "Show detail", detail: "posting + evaluation + proposal", value: "detail"},
+	}
+	m.picker = newListPicker(o.Title, "choose an action", "enter run", acts, func(action string) string {
+		return m.runOpportunityAction(action, id)
+	})
+}
+
+// runOpportunityAction dispatches the chosen opportunity action. Analyze and
+// draft run the worker model synchronously; the result prints inline.
+func (m *model) runOpportunityAction(action, id string) string {
+	switch action {
+	case "analyze":
+		o, err := m.st.Core.GetOpportunity(id)
+		if err != nil {
+			return "analyze failed: " + err.Error()
+		}
+		ev, f, err := m.st.Core.Analyze(context.Background(), id, m.st.Core.EngineForRole(config.RoleWorker))
+		if err != nil {
+			return "analyze failed: " + err.Error()
+		}
+		m.entries = append(m.entries, entry{kind: eNotice, text: fmt.Sprintf("%s — filter pass=%v (%s)\nRecommendation: %s — %s", o.Title, f.Pass, f.Reason, ev.Recommendation, ev.Reason), at: time.Now()})
+		return ""
+	case "proposal":
+		pr, err := m.st.Core.DraftProposal(context.Background(), id, m.st.Core.EngineForRole(config.RoleWorker))
+		if err != nil {
+			return "draft failed: " + err.Error()
+		}
+		m.entries = append(m.entries, entry{kind: eScout, text: "PROPOSAL DRAFT\n\n" + pr.CoverLetter + "\n\nBased on: " + strings.Join(pr.EvidenceIDs, ", "), at: time.Now()})
+		return ""
+	case "detail":
+		o, err := m.st.Core.GetOpportunity(id)
+		if err != nil {
+			return err.Error()
+		}
+		m.entries = append(m.entries, entry{kind: eNotice, text: fmt.Sprintf("[%s] %s\nBudget %s %.0f–%.0f · credits %d\n\n%s", o.Source, o.Status, o.BudgetType, o.BudgetMin, o.BudgetMax, o.ConnectsCost, o.Description), at: time.Now()})
+		return ""
+	}
+	return ""
+}
+
+// openSkills opens the skill picker. Selecting a skill loads its workflow
+// into the conversation as an agent request (the local equivalent of
+// invoking the skill) and prints the workflow body.
+func (m *model) openSkills() {
+	reg, err := m.st.Core.SkillRegistry()
+	if err != nil {
+		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
+		return
+	}
+	var items []pickItem
+	for _, s := range reg.List() {
+		items = append(items, pickItem{
+			label:  s.Name,
+			detail: firstLine(s.Body),
+			value:  s.Name,
+		})
+	}
+	if len(items) == 0 {
+		m.println(entry{kind: eNotice, text: "No skills available.", at: time.Now()})
+		return
+	}
+	m.picker = newListPicker("Skills", "enter loads the workflow", "enter load", items, func(name string) string {
+		for _, s := range reg.List() {
+			if s.Name == name {
+				m.entries = append(m.entries, entry{kind: eNotice, text: "Skill " + s.Name + "\n\n" + s.Body, at: time.Now()})
+				return "loaded skill " + s.Name
+			}
+		}
+		return ""
+	})
+}
+
+// openApplications opens the application picker. Selecting one shows its
+// detail; a follow-up draft is offered when it is submitted.
+func (m *model) openApplications() {
+	apps, err := m.st.Core.ListApplications(50)
+	if err != nil {
+		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
+		return
+	}
+	if len(apps) == 0 {
+		m.println(entry{kind: eNotice, text: "No applications yet.", at: time.Now()})
+		return
+	}
+	var items []pickItem
+	for _, a := range apps {
+		items = append(items, pickItem{
+			label:  a.Stage + " · " + shortID(a.OpportunityID),
+			detail: a.Source,
+			value:  a.ID,
+		})
+	}
+	m.picker = newListPicker("Applications", "enter shows detail", "enter detail", items, func(id string) string {
+		for _, a := range apps {
+			if a.ID == id {
+				m.entries = append(m.entries, entry{kind: eNotice, text: fmt.Sprintf("Application %s\nOpportunity %s · %s\nStage %s · source %s", shortID(a.ID), shortID(a.OpportunityID), "", a.Stage, a.Source), at: time.Now()})
+				return ""
+			}
+		}
+		return ""
+	})
+}
+
+// ---------- thinking picker (/thinking) ----------
+
 // newThinkingPicker builds the reasoning-level selector, mirroring the
-// reference picking experience: the current level is marked, each level is
-// described, typing filters, and Enter selects.
+// reference agents: the current level is marked, each level is described with
+// what it maps to for the current provider, typing filters, and Enter selects.
 func newThinkingPicker(current, provider, model string, onSelect func(level string) string) *listPickerUI {
 	var items []pickItem
-	for _, lvl := range thinkingLevels {
+	for _, lvl := range llm.ThinkLevels {
 		items = append(items, pickItem{
 			label:   lvl,
-			detail:  thinkingDesc[lvl],
+			detail:  llm.ThinkDescription(provider, lvl),
 			current: lvl == current,
 			value:   lvl,
 		})
@@ -316,6 +458,5 @@ func newThinkingPicker(current, provider, model string, onSelect func(level stri
 	} else {
 		status += " (current: " + current + ")"
 	}
-	u := newListPicker("Thinking Level", status, "enter select", items, onSelect)
-	return u
+	return newListPicker("Thinking Level", status, "enter select", items, onSelect)
 }

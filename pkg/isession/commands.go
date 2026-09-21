@@ -9,9 +9,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ianclemence/scout/pkg/changelog"
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/domain"
+	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/profile"
 	"github.com/ianclemence/scout/pkg/runtime"
 )
@@ -74,24 +76,25 @@ func Registry() []*Command {
 		{Name: "tools", Description: "List agent tools and permission classes", Handler: cmdTools},
 		{Name: "opportunities", Description: "List opportunities: /opportunities [query] [--status s]", ArgHint: "[query]", Handler: cmdOpps},
 		{Name: "opportunity", Description: "Show detail + evaluation: /opportunity <id>", ArgHint: "<id>", Handler: cmdOpp},
-		{Name: "discover", Description: "Discovery summary over stored opportunities", Handler: cmdDiscover},
+		{Name: "discover", Description: "Filter pass over stored opportunities (does not fetch sources)", Handler: cmdDiscover},
 		{Name: "analyze", Description: "Analyze fit: /analyze <id>", ArgHint: "<id>", Handler: cmdAnalyze},
 		{Name: "proposal", Description: "Draft proposal: /proposal <id>", ArgHint: "<id>", Handler: cmdProposal},
-		{Name: "approvals", Description: "Review pending actions: /approvals [approve|reject <id>]", ArgHint: "[approve|reject <id>]", Handler: cmdApprovals},
+		{Name: "approvals", Description: "Review/decide pending actions (picker; records your decision)", ArgHint: "[approve|reject <id>]", Handler: cmdApprovals},
 		{Name: "applications", Description: "List applications", Handler: cmdApplications},
 		{Name: "pipeline", Description: "Pipeline counts by stage", Handler: cmdPipeline},
 		{Name: "inbox", Description: "Messages needing attention", Handler: cmdInbox},
 		{Name: "feedback", Description: "Record feedback: /feedback <opp-id> <signal> [note]", ArgHint: "<opp-id> <signal>", Handler: cmdFeedback},
 		{Name: "session", Description: "Current session info", Handler: cmdSession},
-		{Name: "sessions", Description: "List sessions", Handler: cmdSessions},
+		{Name: "sessions", Description: "List/pick a session (Enter switches in the TUI)", Handler: cmdSessions},
 		{Name: "new", Description: "Start a new session", Handler: cmdNew},
 		{Name: "name", Description: "Rename the session: /name <name>", ArgHint: "<name>", Handler: cmdName},
 		{Name: "export", Description: "Export transcript to markdown: /export <path>", ArgHint: "<path>", Handler: cmdExport},
 		{Name: "copy", Description: "Copy last assistant message (clipboard where available)", Handler: cmdCopy},
 		{Name: "keys", Description: "Keyboard shortcuts", Handler: cmdKeys},
-		{Name: "resume", Description: "Resume a session: /resume <id|name>", ArgHint: "<id|name>", Handler: cmdResume},
+		{Name: "resume", Description: "Resume a session (bare lists/picks; /resume <id|name>)", ArgHint: "[id|name]", Handler: cmdResume},
 		{Name: "clear", Description: "Clear screen (keeps history)", Handler: cmdClear},
 		{Name: "compact", Description: "Summarize and trim session context", Handler: cmdCompact},
+		{Name: "changelog", Description: "Show release notes", Handler: cmdChangelog},
 		{Name: "doctor", Description: "Diagnostics", Handler: cmdDoctor},
 		{Name: "quit", Description: "Exit Scout", Handler: cmdQuit},
 	}
@@ -297,7 +300,8 @@ func cmdApprovals(ctx *SessionCtx, args string) error {
 		if err := ctx.Core.SetApprovalStatus(parts[1], status); err != nil {
 			return err
 		}
-		ctx.Printf("%s → %s. (External execution happens through the official integration run step.)\n", parts[1], status)
+		ctx.Printf("%s → %s.\n", parts[1], status)
+		ctx.Printf("This records your decision. Scout submits externally only when a connected source can execute it; otherwise ask the agent to run it and it will report what happened.\n")
 		return nil
 	}
 	acts, err := ctx.Core.PendingApprovals()
@@ -317,6 +321,7 @@ func cmdApprovals(ctx *SessionCtx, args string) error {
 		}
 		ctx.Printf("  /approvals approve %s · /approvals reject %s\n", shortID(a.ID), shortID(a.ID))
 	}
+	ctx.Printf("\nApproving records your decision. External submission happens only through a connected source that can execute it; otherwise ask the agent to run the approved action.\n")
 	return nil
 }
 
@@ -361,10 +366,26 @@ func cmdInbox(ctx *SessionCtx, args string) error {
 	return nil
 }
 
+// feedbackSignals is the set of preference signals Scout records. Keeping it
+// closed means preference data stays queryable and consistent.
+var feedbackSignals = []string{"good_match", "bad_match", "too_low_budget", "unclear_scope", "bad_client", "already_applied"}
+
+var validFeedback = func() map[string]bool {
+	m := map[string]bool{}
+	for _, s := range feedbackSignals {
+		m[s] = true
+	}
+	return m
+}()
+
 func cmdFeedback(ctx *SessionCtx, args string) error {
 	parts := strings.Fields(args)
 	if len(parts) < 2 {
-		return fmt.Errorf("usage: /feedback <opp-id> <signal> [note]")
+		return fmt.Errorf("usage: /feedback <opp-id> <signal> [note]  (signals: %s)", strings.Join(feedbackSignals, ", "))
+	}
+	signal := strings.ToLower(parts[1])
+	if !validFeedback[signal] {
+		return fmt.Errorf("unknown signal %q — use one of: %s", parts[1], strings.Join(feedbackSignals, ", "))
 	}
 	o, err := ctx.ResolveOpp(parts[0])
 	if err != nil {
@@ -374,17 +395,24 @@ func cmdFeedback(ctx *SessionCtx, args string) error {
 	if len(parts) > 2 {
 		note = strings.Join(parts[2:], " ")
 	}
-	if err := ctx.Core.AddFeedback(o.ID, parts[1], note); err != nil {
+	if err := ctx.Core.AddFeedback(o.ID, signal, note); err != nil {
 		return err
 	}
-	ctx.Printf("Feedback recorded (%s). It becomes explicit preference data, not hidden model behavior.\n", parts[1])
+	ctx.Printf("Feedback recorded (%s). It becomes explicit preference data, not hidden model behavior.\n", signal)
 	return nil
 }
 
-// thinkingLevels is the ordered set of reasoning levels Scout accepts.
-var thinkingLevels = []string{"off", "low", "medium", "high", "max"}
+// thinkingLevels is the ordered set of reasoning levels Scout accepts,
+// aligned with the provider drivers in pkg/llm.
+var thinkingLevels = llm.ThinkLevels
 
-var validThinking = map[string]bool{"off": true, "low": true, "medium": true, "high": true, "max": true}
+var validThinking = func() map[string]bool {
+	m := map[string]bool{}
+	for _, l := range thinkingLevels {
+		m[l] = true
+	}
+	return m
+}()
 
 // cmdThinking mirrors the reference agents: bare /thinking opens an
 // interactive selector (TUI) or a numbered prompt (line mode); an argument
@@ -409,7 +437,7 @@ func cmdThinking(ctx *SessionCtx, args string) error {
 		if l == ctx.Session.Thinking {
 			mark = "✓ "
 		}
-		ctx.Printf("  %d  %s%s\n", i+1, mark, l)
+		ctx.Printf("  %d  %s%-8s %s\n", i+1, mark, l, llm.ThinkDescription(ctx.Session.Provider, l))
 	}
 	ctx.Printf("Choice: ")
 	choice, err := readLineCooked()
@@ -533,6 +561,29 @@ func cmdDoctor(ctx *SessionCtx, args string) error {
 	}
 	if !allOK {
 		ctx.Printf("Fix flagged items, then re-run /doctor.\n")
+	}
+	return nil
+}
+
+// cmdChangelog prints the release notes. With no argument it shows entries
+// newer than the last-seen version (or the whole changelog if none); with a
+// version argument it shows that release.
+func cmdChangelog(ctx *SessionCtx, args string) error {
+	if v := firstField(args); v != "" {
+		if body := changelog.ForVersion(v); body != "" {
+			ctx.Printf("%s\n", body)
+			return nil
+		}
+		ctx.Printf("No release notes for %s.\n", v)
+		return nil
+	}
+	entries := changelog.NewSince(ctx.Core.Cfg.DataDir, Version())
+	if len(entries) == 0 {
+		ctx.Printf("%s\n", changelog.Raw())
+		return nil
+	}
+	for _, e := range entries {
+		ctx.Printf("What's new in %s\n\n%s\n\n", e.Version, e.Body)
 	}
 	return nil
 }

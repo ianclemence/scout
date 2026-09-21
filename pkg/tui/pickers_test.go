@@ -8,6 +8,7 @@ import (
 	"github.com/ianclemence/scout/pkg/changelog"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/isession"
+	"github.com/ianclemence/scout/pkg/llm"
 )
 
 // The thinking picker lists every level, marks the current one, filters as you
@@ -31,8 +32,8 @@ func TestThinkingPicker(t *testing.T) {
 	if !strings.Contains(v, "Thinking Level") || !strings.Contains(v, "Moderate reasoning") {
 		t.Fatalf("picker not rendered:\n%s", v)
 	}
-	if len(m.picker.filtered) != 5 {
-		t.Fatalf("expected 5 levels, got %d", len(m.picker.filtered))
+	if len(m.picker.filtered) != len(llm.ThinkLevels) {
+		t.Fatalf("expected %d levels, got %d", len(llm.ThinkLevels), len(m.picker.filtered))
 	}
 	// Current level is marked.
 	var marked string

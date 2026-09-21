@@ -505,6 +505,21 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 			m.openApprovals()
 			return m, nil
 		}
+	case "opportunities", "opps":
+		if strings.TrimSpace(args) == "" {
+			m.openOpportunities()
+			return m, m.flushCmds()
+		}
+	case "skills":
+		if strings.TrimSpace(args) == "" {
+			m.openSkills()
+			return m, m.flushCmds()
+		}
+	case "applications", "apps":
+		if strings.TrimSpace(args) == "" {
+			m.openApplications()
+			return m, m.flushCmds()
+		}
 	}
 	m.st.Width = m.width
 	m.st.SwitchSession = m.switchSession

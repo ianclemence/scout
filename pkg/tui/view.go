@@ -519,6 +519,8 @@ func (m *model) approvalCard() string {
 	}
 	row += styleNotice.Render("←→ select · enter confirm · esc leaves pending")
 	b.WriteString(row)
+	b.WriteString("\n")
+	b.WriteString(bar.Render("┃") + " " + styleFooterHint.Render("approving records your decision; it does not submit externally unless a connected source can execute it"))
 	return b.String()
 }
 

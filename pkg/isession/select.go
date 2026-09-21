@@ -406,7 +406,34 @@ func cmdNew(ctx *SessionCtx, args string) error {
 func cmdResume(ctx *SessionCtx, args string) error {
 	ref := firstField(args)
 	if ref == "" {
-		return fmt.Errorf("usage: /resume <id|name>")
+		// Line mode: list sessions, then prompt. Never a hard error.
+		list, err := csession.List(ctx.Core.DB)
+		if err != nil {
+			return err
+		}
+		if len(list) == 0 {
+			ctx.Printf("No sessions to resume.\n")
+			return nil
+		}
+		ctx.Printf("Resume which session? (number, or /resume <id|name>)\n")
+		for i, s := range list {
+			mark := ""
+			if s.ID == ctx.Session.ID {
+				mark = "  ← current"
+			}
+			ctx.Printf("  %2d  %-12s %-18s %s/%s%s\n", i+1, shortID(s.ID), s.Name, s.Provider, s.Model, mark)
+		}
+		ctx.Printf("Choice: ")
+		choice, cerr := readLineCooked()
+		if cerr != nil || strings.TrimSpace(choice) == "" {
+			return nil
+		}
+		var n int
+		if _, serr := fmt.Sscanf(choice, "%d", &n); serr == nil && n >= 1 && n <= len(list) {
+			ref = list[n-1].ID
+		} else {
+			ref = strings.TrimSpace(choice)
+		}
 	}
 	s, err := csession.Resolve(ctx.Core.DB, ref)
 	if err != nil {
@@ -515,8 +542,8 @@ func cmdKeys(ctx *SessionCtx, args string) error {
 	ctx.Printf("  enter        send · alt-enter newline in composer\n")
 	ctx.Printf("  esc          abort turn · close dialogs · quit when idle\n")
 	ctx.Printf("  ctrl+c       abort turn · quit when idle\n")
-	ctx.Printf("  ctrl+l       model picker (Tab all/scoped · ctrl+s default)\n")
-	ctx.Printf("  ctrl+p       cycle scoped models (shift+ctrl+p previous)\n")
+	ctx.Printf("  ctrl+l       model picker (tab all/scoped · ctrl+s set default)\n")
+	ctx.Printf("  ctrl+p       cycle the enabled model scope (shift+ctrl+p previous)\n")
 	ctx.Printf("  tab          complete palette selection · scope toggle in /model\n")
 	ctx.Printf("  ↑↓           navigate lists · type to filter selectors · history in line mode\n")
 	ctx.Printf("  1 / 2        approve / reject on the approval card\n")
