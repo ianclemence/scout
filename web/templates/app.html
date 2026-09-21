@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scout — Work Console</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header>
+  <div class="brand">Scout <span class="ver">{{.Version}}</span></div>
+  <nav>
+    <a href="/">Opportunities</a>
+    <a href="/approvals">Approvals{{if .PendingCount}} ({{.PendingCount}}){{end}}</a>
+    <a href="/applications">Pipeline</a>
+    <a href="/profile">Profile</a>
+    <a href="/integrations">Integrations</a>
+    <a href="/status">Status</a>
+  </nav>
+</header>
+<main>
+{{if .Flash}}<div class="flash">{{.Flash}}</div>{{end}}
+
+{{if eq .Page "home"}}
+<h1>What's new?</h1>
+<p class="muted">{{.Stats.Opportunities}} opportunities · {{.Stats.Pending}} need approval · {{.Stats.Applications}} applications</p>
+{{if .PendingItems}}
+<section class="panel urgent">
+<h2>Needs your approval</h2>
+<ul>{{range .PendingItems}}<li><b>{{.ActionType}}</b> → {{.Target}} <span class="risk">{{.RiskLevel}}</span> <a href="/approvals">review</a></li>{{end}}</ul>
+</section>
+{{end}}
+<section class="panel">
+<h2>Opportunities</h2>
+<form method="GET" action="/" class="row">
+<input name="q" placeholder="Search opportunities…" value="{{.Query}}">
+<select name="filter"><option value="">all</option><option value="review" {{if eq .Filter "review"}}selected{{end}}>review</option><option value="discovered" {{if eq .Filter "discovered"}}selected{{end}}>discovered</option><option value="dismissed" {{if eq .Filter "dismissed"}}selected{{end}}>dismissed</option></select>
+<button type="submit">Search</button>
+</form>
+<ul class="opps">
+{{range .Opportunities}}<li><a href="/o/{{.ID}}">{{.Title}}</a> <span class="muted">{{.Source}} · {{.Status}}</span></li>
+{{else}}<li class="muted">No opportunities yet. Add one below or run discovery.</li>{{end}}
+</ul>
+</section>
+<section class="panel">
+<h2>Add opportunity (manual)</h2>
+<form method="POST" action="/opportunities/add" class="col">
+<input name="title" placeholder="Title" required>
+<textarea name="description" placeholder="Paste the full job description…" rows="5" required></textarea>
+<input name="skills" placeholder="skills, comma separated">
+<button type="submit">Save + analyze</button>
+</form>
+</section>
+{{end}}
+
+{{if eq .Page "opportunity"}}
+{{with .Opp}}
+<p><a href="/">← back</a></p>
+<h1>{{.Title}}</h1>
+<p class="muted">{{.Source}} · {{.Status}} · budget {{.BudgetType}} {{.BudgetMin}}–{{.BudgetMax}} · connects {{.ConnectsCost}}</p>
+<pre class="desc">{{.Description}}</pre>
+{{end}}
+{{if .Eval}}
+<h2>Why Scout thinks it matches</h2>
+<table>
+<tr><th>Dimension</th><th>Rating</th><th>Detail</th></tr>
+{{range .Eval.Dimensions}}<tr><td>{{.Name}}</td><td>{{.Rating}}</td><td>{{.Detail}}</td></tr>{{end}}
+</table>
+<p><b>Recommendation: {{.Eval.Recommendation}}</b> — {{.Eval.Reason}}</p>
+{{if .Eval.Risks}}<p><b>Risks:</b> {{range .Eval.Risks}}<span class="risk">{{.}}</span> {{end}}</p>{{end}}
+{{end}}
+<section class="panel">
+<h2>Proposal</h2>
+{{if .Proposal}}<pre>{{.Proposal.CoverLetter}}</pre>
+<p class="muted">rate {{.Proposal.Rate}} {{.Proposal.RateType}} · {{.Proposal.DurationEst}} · status {{.Proposal.Status}}</p>
+{{else}}<p class="muted">No draft yet.</p>{{end}}
+<form method="POST" action="/o/{{.Opp.ID}}/proposal" class="row">
+<button type="submit">Generate proposal</button>
+</form>
+{{if .Proposal}}
+<form method="POST" action="/o/{{.Opp.ID}}/request-approval" class="row">
+<button type="submit">Request approval to submit</button>
+</form>
+{{end}}
+</section>
+{{end}}
+
+{{if eq .Page "approvals"}}
+<h1>Approvals</h1>
+<ul>{{range .PendingItems}}<li>
+<b>{{.ActionType}}</b> → {{.Target}} <span class="risk">{{.RiskLevel}}</span><br>
+<pre>{{.Payload}}</pre>
+<form method="POST" action="/approvals/{{.ID}}/approve" class="inline"><button>Approve</button></form>
+<form method="POST" action="/approvals/{{.ID}}/reject" class="inline"><button>Reject</button></form>
+</li>{{else}}<li class="muted">Nothing awaiting approval.</li>{{end}}</ul>
+{{end}}
+
+{{if eq .Page "applications"}}
+<h1>Pipeline</h1>
+<table><tr><th>Opportunity</th><th>Source</th><th>Stage</th><th>Connects</th></tr>
+{{range .Applications}}<tr><td>{{.OpportunityID}}</td><td>{{.Source}}</td><td>{{.Stage}}</td><td>{{.CostConnects}}</td></tr>
+{{else}}<tr><td colspan="4" class="muted">No applications yet.</td></tr>{{end}}</table>
+{{end}}
+
+{{if eq .Page "profile"}}
+<h1>Profile</h1>
+<form method="POST" action="/profile" class="col">
+<label>Display name<input name="display_name" value="{{.Profile.DisplayName}}"></label>
+<label>Title<input name="title" value="{{.Profile.Title}}"></label>
+<label>Summary<textarea name="summary" rows="3">{{.Profile.Summary}}</textarea></label>
+<label>Skills (comma separated)<input name="skills" value="{{.SkillsStr}}"></label>
+<label>Min project budget<input name="min_budget" value="{{.Profile.MinProjectBudget}}"></label>
+<label>Min hourly rate<input name="min_hourly" value="{{.Profile.MinHourlyRate}}"></label>
+<label>Max Connects per application<input name="max_connects" value="{{.Profile.MaxConnectsPerApp}}"></label>
+<label>Excluded work (comma separated)<input name="excluded" value="{{.ExcludedStr}}"></label>
+<label>Proposal style<select name="proposal_style"><option {{if eq .Profile.ProposalStyle "concise"}}selected{{end}}>concise</option><option {{if eq .Profile.ProposalStyle "technical"}}selected{{end}}>technical</option><option {{if eq .Profile.ProposalStyle "friendly"}}selected{{end}}>friendly</option><option {{if eq .Profile.ProposalStyle "executive"}}selected{{end}}>executive</option><option {{if eq .Profile.ProposalStyle "direct"}}selected{{end}}>direct</option></select></label>
+<button type="submit">Save profile</button>
+</form>
+<section class="panel">
+<h2>Import CV</h2>
+<form method="POST" action="/profile/import" enctype="multipart/form-data" class="row">
+<input type="file" name="cv" accept=".txt,.md,.pdf">
+<button type="submit">Upload + extract</button>
+</form>
+</section>
+{{end}}
+
+{{if eq .Page "integrations"}}
+<h1>Integrations</h1>
+<ul>{{range .Sources}}<li><b>{{.Name}}</b> ({{.Kind}}) — {{.Endpoint}} — {{if .Enabled}}enabled{{else}}disabled{{end}} — caps: {{.Capabilities}}</li>
+{{else}}<li class="muted">No integrations yet.</li>{{end}}</ul>
+<section class="panel">
+<h2>Add MCP connector</h2>
+<form method="POST" action="/integrations/add" class="col">
+<input name="name" placeholder="Name (e.g. Upwork)" required>
+<input name="endpoint" placeholder="https://mcp.upwork.com/mcp" required>
+<input name="token" placeholder="OAuth token (optional, stored encrypted)" type="password">
+<button type="submit">Save connector</button>
+</form>
+<p class="muted">Upwork auth is OAuth in the browser. Paste a token here only if your setup provides one; otherwise save the endpoint and use capability discovery (read-only until authenticated).</p>
+</section>
+{{end}}
+
+{{if eq .Page "status"}}
+<h1>Status</h1>
+<pre>{{.StatusJSON}}</pre>
+<p class="muted">Scout {{.Version}} · local-first · SQLite · boring technology.</p>
+{{end}}
+</main>
+</body>
+</html>

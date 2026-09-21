@@ -1,0 +1,17 @@
+[Unit]
+Description=Scout — self-hosted AI work acquisition agent
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+Environment=SCOUT_ADDR=127.0.0.1:3210
+Environment=SCOUT_DATA_DIR=%h/.local/share/scout
+ExecStart=/usr/local/bin/scout serve
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

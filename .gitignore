@@ -1,0 +1,16 @@
+# Scout — never commit
+.env
+.env.*
+*.db
+*.db-wal
+*.db-shm
+.masterkey
+scout
+scout-*
+/bin/
+/dist/
+*.log
+*.pdf
+cv*.txt
+resume*.txt
+.DS_Store
