@@ -308,9 +308,23 @@ func (m *model) footerKeys() string {
 	case m.working:
 		keys = "esc aborts · / commands"
 	default:
-		keys = "/ commands · esc quit"
+		// Idle: justify the command hint left and the exit hint right, the
+		// same way the stats line pairs the digest with the model name.
+		return m.footerEnds("/ commands", "esc quit")
 	}
 	return styleFooterHint.Render(cellTruncate(keys, m.width))
+}
+
+// footerEnds renders a left hint and a right hint on one line, separated by
+// the remaining width — the alignment used for the idle key bar (and mirrored
+// by footerStats for the digest/model pair).
+func (m *model) footerEnds(left, right string) string {
+	lw, rw := lipgloss.Width(left), lipgloss.Width(right)
+	const minGap = 2
+	if lw+minGap+rw <= m.width {
+		return styleFooterHint.Render(left+strings.Repeat(" ", m.width-lw-rw)) + styleFooterHint.Render(right)
+	}
+	return styleFooterHint.Render(cellTruncate(left+" · "+right, m.width))
 }
 
 // ---------- selector (palette + model picker) ----------

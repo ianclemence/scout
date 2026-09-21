@@ -157,6 +157,15 @@ func TestFooter(t *testing.T) {
 	if s := m.footerKeys(); !strings.Contains(s, "/ commands") {
 		t.Fatalf("footer keys missing: %q", s)
 	}
+	// Idle keys are justified: the command hint leads, the exit hint trails.
+	m.width = 80
+	keys := m.footerKeys()
+	if !strings.HasPrefix(keys, "/ commands") || !strings.HasSuffix(keys, "esc quit") {
+		t.Fatalf("idle footer must justify / commands … esc quit: %q", keys)
+	}
+	if !strings.Contains(keys, strings.Repeat(" ", 20)) {
+		t.Fatalf("idle footer must separate the ends with padding: %q", keys)
+	}
 }
 
 func TestAutoName(t *testing.T) {
