@@ -259,7 +259,46 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if m.sel != nil && m.selMode == "palette" {
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.sel = nil
+			m.palFilter = ""
+			m.ta.Reset()
+			m.layoutComposer()
+			return m, nil
+		case "up", "ctrl+p":
+			if m.sel.cur > 0 {
+				m.sel.cur--
+			}
+			return m, nil
+		case "down", "ctrl+n":
+			if m.sel.cur < len(m.sel.items)-1 {
+				m.sel.cur++
+			}
+			return m, nil
+		case "enter", "tab":
+			nm, cmd := m.pickSelected()
+			return nm, cmd
+		}
+		// All other keys edit the visible composer text; the palette
+		// filters from what is actually typed. Clearing the "/" (or
+		// typing a space) dismisses the palette.
+		var cmd tea.Cmd
+		m.ta, cmd = m.ta.Update(msg)
+		m.layoutComposer()
+		v := strings.TrimSpace(m.ta.Value())
+		if !strings.HasPrefix(v, "/") || strings.Contains(v, " ") {
+			m.sel = nil
+			m.palFilter = ""
+			return m, cmd
+		}
+		m.palFilter = strings.TrimPrefix(v, "/")
+		m.refilterPalette()
+		return m, cmd
+	}
 	if m.sel != nil {
+		// Model picker (and any non-palette selector): navigation only.
 		switch msg.String() {
 		case "esc", "ctrl+c":
 			m.sel = nil
@@ -279,16 +318,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			nm, cmd := m.pickSelected()
 			return nm, cmd
 		default:
-			if m.selMode == "palette" && len(msg.Runes) > 0 {
-				m.palFilter += string(msg.Runes)
-				m.refilterPalette()
-				return m, nil
-			}
-			if m.selMode == "palette" && msg.String() == "backspace" && len(m.palFilter) > 0 {
-				m.palFilter = m.palFilter[:len(m.palFilter)-1]
-				m.refilterPalette()
-				return m, nil
-			}
 			return m, nil
 		}
 	}
@@ -330,10 +359,10 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.ta, cmd = m.ta.Update(msg)
 	m.layoutComposer()
+	// Typing "/" opens the palette; the slash stays visible and editable.
+	// Backspacing it away (or typing a space) dismisses the palette.
 	if v := strings.TrimSpace(m.ta.Value()); strings.HasPrefix(v, "/") && !strings.Contains(v, " ") && len(v) <= 14 {
 		m.openPalette(strings.TrimPrefix(v, "/"))
-		m.ta.Reset()
-		m.layoutComposer()
 	}
 	return m, cmd
 }

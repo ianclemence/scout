@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/ianclemence/scout/internal/csession"
 	"github.com/ianclemence/scout/internal/isession"
 )
@@ -56,9 +58,56 @@ func TestTruncateWrap(t *testing.T) {
 	}
 }
 
+func keyRunes(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+func TestPaletteSlashFlow(t *testing.T) {
+	m := testModel()
+	m.width, m.height, m.ready = 80, 24, true
+	// Type "/": slash stays visible, palette opens unfiltered.
+	nm, _ := m.handleKey(keyRunes("/"))
+	m = nm.(*model)
+	if m.ta.Value() != "/" {
+		t.Fatalf("slash must stay visible, got %q", m.ta.Value())
+	}
+	if m.sel == nil || m.selMode != "palette" {
+		t.Fatal("palette should open")
+	}
+	if len(m.sel.items) == 0 {
+		t.Fatal("unfiltered palette should list commands")
+	}
+	// Type "mod": palette filters.
+	for _, r := range []string{"m", "o", "d"} {
+		nm, _ := m.handleKey(keyRunes(r))
+		m = nm.(*model)
+	}
+	if m.palFilter != "mod" {
+		t.Fatalf("filter = %q", m.palFilter)
+	}
+	for _, it := range m.sel.items {
+		if !strings.HasPrefix(strings.TrimPrefix(it.label, "/"), "mod") {
+			t.Fatalf("unfiltered item %q", it.label)
+		}
+	}
+	// Backspace all the way: palette dismisses, composer keeps "".
+	for i := 0; i < 4; i++ {
+		nm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = nm.(*model)
+	}
+	if m.sel != nil {
+		t.Fatal("palette should dismiss when slash erased")
+	}
+	if m.ta.Value() != "" {
+		t.Fatalf("composer should be empty, got %q", m.ta.Value())
+	}
+}
+
 func testModel() *model {
-	return &model{width: 80, height: 24, ready: true,
-		st: &isession.ReplState{Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}}
+	st := &isession.ReplState{Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}
+	m := initialModel(st)
+	m.width, m.height, m.ready = 80, 24, true
+	return m
 }
 
 func TestComposerRules(t *testing.T) {

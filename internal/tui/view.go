@@ -190,8 +190,8 @@ func (m *model) assistantBlock(text string) string {
 
 func (m *model) welcomeCard() string {
 	w := m.width
-	if w < 20 {
-		w = 20
+	if w < 40 {
+		w = 80 // first paint can precede sizing; never wrap for width 0
 	}
 	center := func(s string) string {
 		var lines []string
@@ -357,6 +357,8 @@ func (m *model) pickSelected() (tea.Model, tea.Cmd) {
 		return m, tea.Println(styleNotice.Render("Session model → " + it.value))
 	}
 	nm, cmd := m.runCommand(strings.TrimPrefix(it.value, "/"))
+	m.ta.Reset()
+	m.layoutComposer()
 	return nm, cmd
 }
 
@@ -473,16 +475,51 @@ func truncate(s string, n int) string {
 
 func wrap(s string, w int) []string {
 	if w <= 0 {
-		return []string{s}
+		w = 80
 	}
 	var out []string
-	for len(s) > 0 {
-		if len(s) <= w {
-			out = append(out, s)
-			break
+	for _, para := range strings.Split(s, "\n") {
+		if strings.TrimSpace(para) == "" {
+			out = append(out, "")
+			continue
 		}
-		out = append(out, s[:w])
-		s = s[w:]
+		var cur strings.Builder
+		curLen := 0
+		flush := func() {
+			if curLen > 0 {
+				out = append(out, cur.String())
+				cur.Reset()
+				curLen = 0
+			}
+		}
+		for _, word := range strings.Fields(para) {
+			wl := lipgloss.Width(word)
+			if curLen == 0 {
+				// Hard-break words wider than the width.
+				for wl > w {
+					out = append(out, word[:w])
+					word = word[w:]
+					wl = lipgloss.Width(word)
+				}
+				cur.WriteString(word)
+				curLen = wl
+				continue
+			}
+			if curLen+1+wl > w {
+				flush()
+				for wl > w {
+					out = append(out, word[:w])
+					word = word[w:]
+					wl = lipgloss.Width(word)
+				}
+				cur.WriteString(word)
+				curLen = wl
+				continue
+			}
+			cur.WriteString(" " + word)
+			curLen += 1 + wl
+		}
+		flush()
 	}
 	return out
 }
