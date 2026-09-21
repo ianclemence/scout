@@ -1,7 +1,7 @@
 # Scout
 
-> **Your profile. Your evidence. Your decision.**
-> *A self-hosted AI work acquisition agent that lives in your terminal — it finds legitimate freelance work, explains why it fits you, drafts the proposal, and never acts without your approval.*
+> **Find work worth doing.**
+> *A self-hosted AI work acquisition agent that lives in your terminal — it finds legitimate work, explains why it fits you, drafts the proposal, and never acts without your approval.*
 
 ---
 
