@@ -1,6 +1,14 @@
 # CHANGELOG
 
-## v0.3.0 (2026-09-21)
+## v0.4.0 (2026-09-21)
+
+- Pi-style login/logout: provider picker with live key state, masked in-TUI dialog, verification where providers allow it, stored-only removal
+- Commands execute: /doctor runs full diagnostics in-session, /profile imports CVs, plus /name, /export, /copy, /keys; /evidence renamed /cv
+- Pi-style sessions: in-place /resume and /new, auto-naming from first message
+- Ghost-hardened core: secret redaction, per-tool call budgets, approval lifecycle events, richer doctor (disk, service, skills/tools counts)
+- Ghost-mirror TUI: rule-framed composer with live activity, palette, model picker, approval cards, footer, markdown with tables, width-aware wrapping
+- Skills library (18) with two-tier loading, 49 typed tools with permission classes and audit log, source adapters (local, MCP, fake)
+- Universal opportunity model, research and GitHub evidence tools, application validation
 
 - Five first-class providers: OpenAI, Anthropic, Ollama, DeepSeek, Moonshot — each with verified endpoints, model defaults, and provider-specific reasoning mapping
 - Model registry: built-in catalog + provider `/models` discovery + live Ollama tags + SQLite cache + `scout models refresh`, offline fallback, unknown metadata stays unknown
