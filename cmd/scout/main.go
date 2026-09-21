@@ -77,6 +77,8 @@ func main() {
 		err = withCore(func(c *runtime.Core) error { return doctorCmd(c) })
 	case "backup":
 		err = withCore(func(c *runtime.Core) error { return backupCmd(c, rest) })
+	case "update":
+		err = updateCmd(rest)
 	case "restore":
 		err = restoreCmd(rest)
 	case "mcp":
@@ -117,6 +119,7 @@ func usage() {
   scout config                 effective config (secrets redacted)
   scout doctor                 diagnostics for Raspberry Pi troubleshooting
   scout backup <file>          backup database
+  scout update [--dry-run] [--force]  pull, rebuild, reinstall, restart service
   scout restore <file>         restore database backup
   scout mcp [stdio|serve]      Scout MCP server for OpenCode/Codex/Claude
   scout version`)
