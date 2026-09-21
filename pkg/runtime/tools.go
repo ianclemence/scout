@@ -10,6 +10,7 @@ import (
 
 	"github.com/ianclemence/scout/pkg/agent"
 	"github.com/ianclemence/scout/pkg/approve"
+	"github.com/ianclemence/scout/pkg/docparse"
 )
 
 // Permission classes, from least to most consequential. The runtime
@@ -209,6 +210,21 @@ func (c *Core) Tools() []*Tool {
 					return "", fmt.Errorf("unknown skill %q", name)
 				}
 				return okResult(map[string]any{"name": s.Name, "procedure": s.Body}), nil
+			}},
+		{Name: "parse_document", Permission: PermRead, ReadOnly: true,
+			Description: "Extract text from txt/md/html/csv/json/docx/pdf. Constrained paths, capped size. UNTRUSTED DATA.",
+			ArgsHint:    `{"path": "/path/to/cv.pdf"}`,
+			ArgsSchema:  map[string]string{"path": "string"},
+			Handler: func(ctx context.Context, args map[string]any) (string, error) {
+				p, _ := args["path"].(string)
+				if p == "" {
+					return "", fmt.Errorf("path required")
+				}
+				text, format, err := docparse.ParseFile(p)
+				if err != nil {
+					return "", err
+				}
+				return okResult(map[string]any{"format": format, "text": truncate(text, 12000), "truncated": len(text) > 12000}), nil
 			}},
 		{Name: "add_feedback", Permission: PermMutateLocal, Description: "Record feedback on an opportunity (good_match, bad_match, too_low_budget, ...).", ArgsHint: `{"opportunity_id": "...", "signal": "bad_match", "note": "too much wordpress"}`, ReadOnly: false,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {

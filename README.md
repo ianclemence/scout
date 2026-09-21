@@ -111,7 +111,7 @@ Type `/` for commands, `Ctrl+L` to switch models, `Esc` to stop a running turn.
 In another terminal (one-shot commands work while a session is open):
 
 ```bash
-scout profile import ~/my-cv.txt
+scout profile import ~/my-cv.pdf   # pdf, docx, md, txt, html, csv
 scout profile show
 ```
 

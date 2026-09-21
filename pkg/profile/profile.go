@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ianclemence/scout/pkg/docparse"
 	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/store"
 )
@@ -18,13 +19,12 @@ func newID() string {
 	return fmt.Sprintf("%d-%x", time.Now().UnixNano(), sha256.Sum256([]byte(fmt.Sprint(time.Now().UnixNano()))))[:24]
 }
 
-// ImportDocument reads a CV/resume file (txt, md, pdf-as-text fallback) and
-// extracts a starter structured profile. PDF parsing is intentionally
-// minimal: plain-text extraction only, no heavy deps.
+// ImportDocument reads CV/resume content and extracts a starter profile.
+// ImportPath is preferred (format detected from the real path).
 func ImportDocument(db *store.Store, filename string, raw []byte) (*domain.ProfessionalProfile, []domain.Evidence, error) {
-	text := string(raw)
-	if strings.HasSuffix(strings.ToLower(filename), ".pdf") {
-		text = extractPDFText(raw)
+	text, _, err := docparse.ParseBytes(raw, filename)
+	if err != nil {
+		return nil, nil, err
 	}
 	p := &domain.ProfessionalProfile{
 		ID:            "default",
@@ -126,43 +126,6 @@ func guessName(text string) string {
 
 func guessExperience(text string) []domain.Experience {
 	return nil // user edits in UI; imports stay as evidence
-}
-
-func extractPDFText(raw []byte) string {
-	// Minimal: pull parenthesized literal strings from PDF content streams.
-	// Good enough for text-based CVs without a PDF dep on the Pi.
-	var sb strings.Builder
-	inStr, esc := false, false
-	var cur strings.Builder
-	for _, c := range raw {
-		if inStr {
-			if esc {
-				cur.WriteByte(c)
-				esc = false
-			} else if c == '\\' {
-				esc = true
-			} else if c == ')' {
-				inStr = false
-				s := cur.String()
-				if len(s) > 2 {
-					sb.WriteString(s)
-					sb.WriteByte(' ')
-				}
-				cur.Reset()
-			} else {
-				cur.WriteByte(c)
-			}
-		} else if c == '(' {
-			inStr = true
-		}
-		if sb.Len() > 60000 {
-			break
-		}
-	}
-	if sb.Len() < 100 {
-		return fmt.Sprintf("[binary PDF, %d bytes — paste text manually]", len(raw))
-	}
-	return sb.String()
 }
 
 func truncate(s string, n int) string {
