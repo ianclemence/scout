@@ -27,6 +27,7 @@ Config file: `~/.config/scout/config.json` (or `$SCOUT_CONFIG`):
 | `SCOUT_DRY_RUN` | block external writes |
 | `OLLAMA_HOST` | local model endpoint |
 | `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY` / `MOONSHOT_API_KEY` | provider keys (credential store wins over env) |
+| `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` / `DEEPSEEK_BASE_URL` / `MOONSHOT_BASE_URL` | endpoint overrides (e.g. `MOONSHOT_BASE_URL=https://api.moonshot.cn/v1` for CN-region keys) |
 | `OPENAI_COMPAT_ENDPOINT` / `OPENAI_COMPAT_KEY` | generic endpoint |
 | `SCOUT_MODEL_<ROLE>` / `SCOUT_MODEL_<ROLE>_PROVIDER` | per-role override (roles: screening, analysis, proposal, conversation, deep_analysis) |
 

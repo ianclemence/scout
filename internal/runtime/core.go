@@ -392,9 +392,20 @@ func (c *Core) Credential(provider string) (string, error) {
 }
 
 func chatEndpoint(c *Core, provider string) string {
+	// Per-provider base-URL overrides for the fixed providers, e.g.
+	// MOONSHOT_BASE_URL=https://api.moonshot.cn/v1 for CN-region keys.
+	// (openai_compatible keeps its own OPENAI_COMPAT_ENDPOINT.)
+	switch provider {
+	case "openai", "anthropic", "deepseek", "moonshot":
+		if v := os.Getenv(strings.ToUpper(provider) + "_BASE_URL"); v != "" {
+			return v
+		}
+	}
 	switch provider {
 	case "openai":
 		return "https://api.openai.com/v1"
+	case "anthropic":
+		return "https://api.anthropic.com"
 	case "deepseek":
 		return "https://api.deepseek.com"
 	case "moonshot":

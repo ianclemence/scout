@@ -69,7 +69,7 @@ func New(cfg Config) (Provider, error) {
 		}
 		return &ollama{endpoint: strings.TrimSuffix(host, "/"), model: cfg.Model, c: httpClient}, nil
 	case "anthropic":
-		return &anthropic{apiKey: cfg.APIKey, model: cfg.Model, c: httpClient}, nil
+		return &anthropic{apiKey: cfg.APIKey, model: cfg.Model, endpoint: cfg.Endpoint, c: httpClient}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider %q", cfg.Provider)
 	}
@@ -265,9 +265,17 @@ func (p *ollama) Complete(req Request) (string, error) {
 // ---- Anthropic ----
 
 type anthropic struct {
-	apiKey string
-	model  string
-	c      *http.Client
+	apiKey   string
+	model    string
+	endpoint string
+	c        *http.Client
+}
+
+func (p *anthropic) base() string {
+	if p.endpoint != "" {
+		return strings.TrimSuffix(p.endpoint, "/")
+	}
+	return "https://api.anthropic.com"
 }
 
 func (p *anthropic) Name() string { return "anthropic" }
@@ -303,7 +311,7 @@ func (p *anthropic) Complete(req Request) (string, error) {
 		bodyMap["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 	}
 	body, _ := json.Marshal(bodyMap)
-	hreq, _ := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	hreq, _ := http.NewRequest("POST", p.base()+"/v1/messages", bytes.NewReader(body))
 	hreq.Header.Set("Content-Type", "application/json")
 	hreq.Header.Set("x-api-key", p.apiKey)
 	hreq.Header.Set("anthropic-version", "2023-06-01")
@@ -519,7 +527,7 @@ func (p *anthropic) Stream(ctx context.Context, req Request, emit func(string) e
 		bodyMapA["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
 	}
 	body, _ := json.Marshal(bodyMapA)
-	hreq, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
+	hreq, err := http.NewRequestWithContext(ctx, "POST", p.base()+"/v1/messages", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
