@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/isession"
 )
 
@@ -358,7 +359,7 @@ func (m *model) refilterPalette() {
 // with search. It mirrors the /model command's interactive behaviour.
 func (m *model) openModelSelector(search string) {
 	defProv, defModel := m.st.Sess.Provider, m.st.Sess.Model
-	if r, ok := m.st.Core.Cfg.Models["conversation"]; ok && r.Provider != "" {
+	if r, ok := m.st.Core.Cfg.Models[config.RoleConversation]; ok && r.Provider != "" {
 		defProv, defModel = r.Provider, r.Model
 	}
 	m.modelSel = newModelPickerUI(m.st.Core, m.st.ScopedModels, m.st.Sess.Provider, m.st.Sess.Model, defProv, defModel, search)
@@ -376,7 +377,7 @@ func (m *model) applyModelSelection(prov, model string, asDefault bool) (tea.Mod
 	saveSessionModel(m.st)
 	if asDefault {
 		// Persisting the default model role updates the config file/env model.
-		if err := m.st.Core.SetRoleModel("conversation", prov, model); err != nil {
+		if err := m.st.Core.SetRoleModel(config.RoleConversation, prov, model); err != nil {
 			return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: err.Error()}))
 		}
 		return m, tea.Println(styleNotice.Render("Default model → " + prov + "/" + model))

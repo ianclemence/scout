@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/profile"
@@ -255,7 +256,7 @@ func cmdAnalyze(ctx *SessionCtx, args string) error {
 		return err
 	}
 	ctx.Printf("Analyzing %s…\n", o.Title)
-	ev, f, err := ctx.Core.Analyze(ctxBg(), o.ID, ctx.Core.EngineForRole("analysis"))
+	ev, f, err := ctx.Core.Analyze(ctxBg(), o.ID, ctx.Core.EngineForRole(config.RoleWorker))
 	if err != nil {
 		return err
 	}
@@ -273,7 +274,7 @@ func cmdProposal(ctx *SessionCtx, args string) error {
 		return err
 	}
 	ctx.Printf("Drafting proposal for %s…\n", o.Title)
-	pr, err := ctx.Core.DraftProposal(ctxBg(), o.ID, ctx.Core.EngineForRole("proposal"))
+	pr, err := ctx.Core.DraftProposal(ctxBg(), o.ID, ctx.Core.EngineForRole(config.RoleWorker))
 	if err != nil {
 		return err
 	}

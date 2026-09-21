@@ -10,6 +10,7 @@ import (
 
 	"github.com/ianclemence/scout/pkg/agent"
 	"github.com/ianclemence/scout/pkg/approve"
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/docparse"
 )
 
@@ -129,7 +130,7 @@ func (c *Core) Tools() []*Tool {
 			}},
 		{Name: "analyze_opportunity", Permission: PermAnalyze, Description: "Run filter + match evaluation on an opportunity.", ArgsHint: `{"id": "opp-..."}`, ReadOnly: true,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
-				ev, f, err := c.Analyze(ctx, str(args, "id"), c.engineFor("analysis"))
+				ev, f, err := c.Analyze(ctx, str(args, "id"), c.engineFor(config.RoleWorker))
 				if err != nil {
 					return "", err
 				}
@@ -137,7 +138,7 @@ func (c *Core) Tools() []*Tool {
 			}},
 		{Name: "prepare_proposal", Permission: PermDraft, Description: "Draft a tailored proposal (draft only, no external writes).", ArgsHint: `{"id": "opp-..."}`, ReadOnly: false,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
-				pr, err := c.DraftProposal(ctx, str(args, "id"), c.engineFor("proposal"))
+				pr, err := c.DraftProposal(ctx, str(args, "id"), c.engineFor(config.RoleWorker))
 				if err != nil {
 					return "", err
 				}

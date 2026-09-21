@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/runtime"
 )
 
@@ -28,7 +29,7 @@ func providersCmd(c *runtime.Core) error {
 		fmt.Printf("%-16s %-10s %-6d %s%s\n", p.Provider, mark, p.Models, p.Detail, roles)
 	}
 	fmt.Printf("\nroles:\n")
-	for _, role := range []string{"screening", "analysis", "proposal", "conversation", "deep_analysis"} {
+	for _, role := range []string{config.RoleConversation, config.RoleWorker} {
 		r := c.Cfg.Models[role]
 		fmt.Printf("  %-13s %s/%s\n", role, r.Provider, r.Model)
 	}

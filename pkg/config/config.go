@@ -27,7 +27,12 @@ type Config struct {
 
 	OllamaHost string
 
-	Models map[string]LLMRole // screening, analysis, proposal, conversation, deep_analysis
+	// Models maps a role to its provider/model. Scout has exactly two roles:
+	// "conversation" (the interactive/session model, runtime-switchable via
+	// /model) and "worker" (background tasks: fit analysis, proposal drafting,
+	// and future tool work). The worker inherits the conversation model unless
+	// explicitly overridden. See DefaultRoles and RoleCanonical.
+	Models map[string]LLMRole
 
 	DryRun bool
 }
@@ -59,17 +64,71 @@ const (
 	DefaultModel    = "deepseek-flash"
 )
 
-// DefaultRoles returns the per-role default provider/model, honoring the
-// SCOUT_MODEL_* environment overrides. Shared by Default() and any surface
-// that needs the same set.
-func DefaultRoles() map[string]LLMRole {
-	return map[string]LLMRole{
-		"screening":     {Provider: envOr("SCOUT_MODEL_SCREENING_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_SCREENING", DefaultModel)},
-		"analysis":      {Provider: envOr("SCOUT_MODEL_ANALYSIS_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_ANALYSIS", DefaultModel)},
-		"proposal":      {Provider: envOr("SCOUT_MODEL_PROPOSAL_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_PROPOSAL", DefaultModel)},
-		"conversation":  {Provider: envOr("SCOUT_MODEL_CONVERSATION_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_CONVERSATION", DefaultModel)},
-		"deep_analysis": {Provider: envOr("SCOUT_MODEL_DEEP_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_DEEP", DefaultModel)},
+// Role names. Scout keeps exactly the distinction that earns its keep: the
+// interactive session model, and the background worker model (which inherits
+// the session model unless overridden).
+const (
+	RoleConversation = "conversation"
+	RoleWorker       = "worker"
+)
+
+// legacyRole maps the old five-role names onto today's two roles, so existing
+// SCOUT_MODEL_* env vars and config.json keys keep working.
+var legacyRole = map[string]string{
+	"screening":     RoleWorker,
+	"analysis":      RoleWorker,
+	"proposal":      RoleWorker,
+	"deep_analysis": RoleWorker,
+	"deep":          RoleWorker,
+}
+
+// RoleCanonical resolves a role name (current or legacy) to a canonical role.
+// Unknown names fall back to the worker role.
+func RoleCanonical(role string) string {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if role == RoleConversation {
+		return RoleConversation
 	}
+	if role == RoleWorker {
+		return RoleWorker
+	}
+	if canon, ok := legacyRole[role]; ok {
+		return canon
+	}
+	return RoleWorker
+}
+
+// DefaultRoles returns the role default provider/model, honoring the
+// SCOUT_MODEL_* environment overrides. The worker defaults to the
+// conversation model unless explicitly overridden, so there is one model
+// everywhere by default and a worker override only when a user wants a
+// cheaper or different background model.
+func DefaultRoles() map[string]LLMRole {
+	conv := LLMRole{
+		Provider: envOr("SCOUT_MODEL_CONVERSATION_PROVIDER", envOr("SCOUT_MODEL_PROVIDER", DefaultProvider)),
+		Model:    envOr("SCOUT_MODEL_CONVERSATION", envOr("SCOUT_MODEL", DefaultModel)),
+	}
+	worker := conv
+	if p := envFirst("SCOUT_MODEL_WORKER_PROVIDER", "SCOUT_MODEL_ANALYSIS_PROVIDER", "SCOUT_MODEL_PROPOSAL_PROVIDER", "SCOUT_MODEL_SCREENING_PROVIDER", "SCOUT_MODEL_DEEP_PROVIDER"); p != "" {
+		worker.Provider = p
+	}
+	if m := envFirst("SCOUT_MODEL_WORKER", "SCOUT_MODEL_ANALYSIS", "SCOUT_MODEL_PROPOSAL", "SCOUT_MODEL_SCREENING", "SCOUT_MODEL_DEEP"); m != "" {
+		worker.Model = m
+	}
+	return map[string]LLMRole{
+		RoleConversation: conv,
+		RoleWorker:       worker,
+	}
+}
+
+// envFirst returns the first non-empty environment value among keys.
+func envFirst(keys ...string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 func envOr(k, d string) string {
@@ -104,6 +163,14 @@ type FileConfig struct {
 // Load merges defaults <- config file <- environment.
 func Load() Config {
 	cfg := Default()
+	// A worker override may come from a file or from the environment, under
+	// either the canonical name or a legacy one; any of these counts as
+	// explicit so the worker does not simply inherit the conversation model.
+	workerExplicit := envFirst("SCOUT_MODEL_WORKER_PROVIDER", "SCOUT_MODEL_WORKER",
+		"SCOUT_MODEL_ANALYSIS_PROVIDER", "SCOUT_MODEL_ANALYSIS",
+		"SCOUT_MODEL_PROPOSAL_PROVIDER", "SCOUT_MODEL_PROPOSAL",
+		"SCOUT_MODEL_SCREENING_PROVIDER", "SCOUT_MODEL_SCREENING",
+		"SCOUT_MODEL_DEEP_PROVIDER", "SCOUT_MODEL_DEEP") != ""
 	var path string
 	if v := os.Getenv("SCOUT_CONFIG"); v != "" {
 		path = v
@@ -128,7 +195,13 @@ func Load() Config {
 					cfg.DryRun = *fc.DryRun
 				}
 				for k, v := range fc.Models {
-					cfg.Models[k] = v
+					// Map legacy role keys (analysis/proposal/screening/deep) onto
+					// the worker role so old config files keep working. A file value
+					// for either canonical role counts as an explicit override.
+					if RoleCanonical(k) == RoleWorker {
+						workerExplicit = true
+					}
+					cfg.Models[RoleCanonical(k)] = v
 				}
 			}
 		}
@@ -146,20 +219,36 @@ func Load() Config {
 	if _, ok := os.LookupEnv("SCOUT_DRY_RUN"); ok {
 		cfg.DryRun = envBool("SCOUT_DRY_RUN", cfg.DryRun)
 	}
-	// Per-role models: env vars override file values only when set.
-	for role := range cfg.Models {
-		up := strings.ToUpper(role)
-		if p, ok := os.LookupEnv("SCOUT_MODEL_" + up + "_PROVIDER"); ok {
-			r := cfg.Models[role]
-			r.Provider = p
-			cfg.Models[role] = r
-		}
-		if m, ok := os.LookupEnv("SCOUT_MODEL_" + up); ok {
-			r := cfg.Models[role]
-			r.Model = m
-			cfg.Models[role] = r
-		}
+	// Precedence is defaults < file < environment. cfg.Models starts as the
+	// env-aware defaults (from Default); the file merge above overrode the
+	// roles it mentioned. Resolve inheritance, then per-field env overrides.
+	conv := cfg.Models[RoleConversation]
+	worker := cfg.Models[RoleWorker]
+	if !workerExplicit {
+		// The worker follows the conversation model unless deliberately set.
+		worker = conv
 	}
+	// Environment overrides win over both file and default, per field.
+	if v, ok := os.LookupEnv("SCOUT_MODEL_CONVERSATION_PROVIDER"); ok {
+		conv.Provider = v
+	}
+	if v, ok := os.LookupEnv("SCOUT_MODEL_CONVERSATION"); ok {
+		conv.Model = v
+	}
+	if !workerExplicit {
+		// Inherit the (possibly env-overridden) conversation model.
+		worker = conv
+	}
+	// Worker env override: canonical name first, then the legacy names so an
+	// existing SCOUT_MODEL_ANALYSIS/PROPOSAL/SCREENING/DEEP keeps working.
+	if v := envFirst("SCOUT_MODEL_WORKER_PROVIDER", "SCOUT_MODEL_ANALYSIS_PROVIDER", "SCOUT_MODEL_PROPOSAL_PROVIDER", "SCOUT_MODEL_SCREENING_PROVIDER", "SCOUT_MODEL_DEEP_PROVIDER"); v != "" {
+		worker.Provider = v
+	}
+	if v := envFirst("SCOUT_MODEL_WORKER", "SCOUT_MODEL_ANALYSIS", "SCOUT_MODEL_PROPOSAL", "SCOUT_MODEL_SCREENING", "SCOUT_MODEL_DEEP"); v != "" {
+		worker.Model = v
+	}
+	cfg.Models[RoleConversation] = conv
+	cfg.Models[RoleWorker] = worker
 	return cfg
 }
 
@@ -189,8 +278,18 @@ func SaveRoles(models map[string]LLMRole) error {
 	if fc.Models == nil {
 		fc.Models = map[string]LLMRole{}
 	}
+	// Write canonical role keys only; drop any legacy keys a prior version
+	// left behind so the file converges on the two-role model.
+	cleaned := map[string]LLMRole{}
+	for k, v := range fc.Models {
+		canon := RoleCanonical(k)
+		if k == canon {
+			cleaned[canon] = v
+		}
+	}
+	fc.Models = cleaned
 	for k, v := range models {
-		fc.Models[k] = v
+		fc.Models[RoleCanonical(k)] = v
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err

@@ -275,7 +275,7 @@ Anything without a slash is a request to the agent. Piped (non-TTY) input falls 
 
 Precedence: **defaults < config file < environment**. User data lives in SQLite.
 
-Config file `~/.config/scout/config.json` (or `$SCOUT_CONFIG`) sets addresses, data dir, Ollama host, dry-run, and per-role models (`screening`, `analysis`, `proposal`, `conversation`, `deep_analysis`). See [CONFIGURATION.md](docs/CONFIGURATION.md).
+Config file `~/.config/scout/config.json` (or `$SCOUT_CONFIG`) sets addresses, data dir, Ollama host, dry-run, and the two model roles: `conversation` (the interactive/session model, switchable with `/model`) and `worker` (background tasks — fit analysis, proposal drafting). The worker inherits the conversation model unless you deliberately point it elsewhere. See [CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ### Providers and models
 

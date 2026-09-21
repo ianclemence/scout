@@ -4,10 +4,7 @@
   "ollama_host": "http://127.0.0.1:11434",
   "dry_run": false,
   "models": {
-    "screening": { "provider": "deepseek", "model": "deepseek-flash" },
-    "analysis": { "provider": "deepseek", "model": "deepseek-flash" },
-    "proposal": { "provider": "deepseek", "model": "deepseek-flash" },
     "conversation": { "provider": "deepseek", "model": "deepseek-flash" },
-    "deep_analysis": { "provider": "deepseek", "model": "deepseek-flash" }
+    "worker": { "provider": "deepseek", "model": "deepseek-flash" }
   }
 }

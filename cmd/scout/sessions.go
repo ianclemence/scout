@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/runtime"
@@ -72,7 +73,7 @@ func askCmd(c *runtime.Core, args []string) error {
 	if len(q) == 0 {
 		return fmt.Errorf("usage: scout ask [--json] \"question\"")
 	}
-	sess, err := csession.Create(c.DB, "ask", c.Cfg.Models["conversation"].Provider, c.Cfg.Models["conversation"].Model)
+	sess, err := csession.Create(c.DB, "ask", c.Cfg.Models[config.RoleConversation].Provider, c.Cfg.Models[config.RoleConversation].Model)
 	if err != nil {
 		return err
 	}

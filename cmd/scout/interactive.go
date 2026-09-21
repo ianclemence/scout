@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/isession"
 	"github.com/ianclemence/scout/pkg/llm"
@@ -25,7 +26,7 @@ func runInteractive(resumeRef string) error {
 		}
 		fmt.Printf("Resumed session %s (%s).\n", sess.ID[:12], sess.Name)
 	} else {
-		sess, err = csession.Create(c.DB, "interactive", c.Cfg.Models["conversation"].Provider, c.Cfg.Models["conversation"].Model)
+		sess, err = csession.Create(c.DB, "interactive", c.Cfg.Models[config.RoleConversation].Provider, c.Cfg.Models[config.RoleConversation].Model)
 		if err != nil {
 			return err
 		}

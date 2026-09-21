@@ -490,7 +490,7 @@ func (c *Core) ConfiguredProviders() map[string]bool {
 func (c *Core) ProviderStatus(ctx context.Context) []ProviderSummary {
 	reg := c.Registry()
 	rolesByProv := map[string][]string{}
-	for _, role := range []string{"screening", "analysis", "proposal", "conversation", "deep_analysis"} {
+	for _, role := range []string{config.RoleConversation, config.RoleWorker} {
 		if r, ok := c.Cfg.Models[role]; ok {
 			rolesByProv[r.Provider] = append(rolesByProv[r.Provider], role)
 		}
@@ -632,21 +632,23 @@ func (c *Core) EngineForRole(role string) *agent.Engine {
 
 // EngineFor builds an engine for an explicit provider/model (session switching).
 func (c *Core) EngineFor(provider, model string) *agent.Engine {
-	saved := c.Cfg.Models["conversation"]
-	c.Cfg.Models["conversation"] = config.LLMRole{Provider: provider, Model: model}
-	eng := engineFromEnv(c, "conversation")
-	c.Cfg.Models["conversation"] = saved
+	saved := c.Cfg.Models[config.RoleConversation]
+	c.Cfg.Models[config.RoleConversation] = config.LLMRole{Provider: provider, Model: model}
+	eng := engineFromEnv(c, config.RoleConversation)
+	c.Cfg.Models[config.RoleConversation] = saved
 	return eng
 }
 
 // SetRoleModel updates an in-memory role mapping and persists it to the config
-// file. Used by /model Ctrl+S ("set as default").
+// file. Used by /model Ctrl+S ("set as default"). Legacy role names are mapped
+// onto the two canonical roles.
 func (c *Core) SetRoleModel(role, provider, model string) error {
+	canon := config.RoleCanonical(role)
 	if c.Cfg.Models == nil {
 		c.Cfg.Models = map[string]config.LLMRole{}
 	}
-	c.Cfg.Models[role] = config.LLMRole{Provider: provider, Model: model}
-	return config.SaveRoles(map[string]config.LLMRole{role: {Provider: provider, Model: model}})
+	c.Cfg.Models[canon] = config.LLMRole{Provider: provider, Model: model}
+	return config.SaveRoles(map[string]config.LLMRole{canon: {Provider: provider, Model: model}})
 }
 
 // ---------- secrets ----------

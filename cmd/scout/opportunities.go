@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/version"
 )
@@ -133,7 +134,7 @@ func analyzeCmd(c *runtime.Core, args []string) error {
 	if err != nil {
 		return err
 	}
-	ev, f, err := c.Analyze(context.Background(), id, c.EngineForRole("analysis"))
+	ev, f, err := c.Analyze(context.Background(), id, c.EngineForRole(config.RoleWorker))
 	if err != nil {
 		return err
 	}
@@ -151,7 +152,7 @@ func proposalCmd(c *runtime.Core, args []string) error {
 	if err != nil {
 		return err
 	}
-	pr, err := c.DraftProposal(context.Background(), id, c.EngineForRole("proposal"))
+	pr, err := c.DraftProposal(context.Background(), id, c.EngineForRole(config.RoleWorker))
 	if err != nil {
 		return err
 	}

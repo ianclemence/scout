@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ianclemence/scout/pkg/agent"
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/skills"
 	"github.com/ianclemence/scout/pkg/workspace"
@@ -172,13 +173,25 @@ func summarizeArgs(args map[string]any) string {
 	return truncate(string(b), 160)
 }
 
-// engineFromEnv builds a role-scoped engine.
-// Credential precedence: explicit runtime config > Scout credential store
-// > environment variable > provider default. Stored and env keys are never logged.
+// engineFromEnv builds a role-scoped engine. Legacy role names
+// (screening/analysis/proposal/deep_analysis) resolve to the worker role, and
+// conversation stays the session model. Credential precedence: explicit
+// runtime config > Scout credential store > environment variable > provider
+// default. Stored and env keys are never logged.
 func engineFromEnv(c *Core, role string) *agent.Engine {
-	r, ok := c.Cfg.Models[role]
+	canon := config.RoleCanonical(role)
+	r, ok := c.Cfg.Models[canon]
 	if !ok {
-		r = c.Cfg.Models["analysis"]
+		// Fall back to the conversation model, then to any defined role, so a
+		// sparse config still produces a working engine.
+		if conv, ok := c.Cfg.Models[config.RoleConversation]; ok {
+			r = conv
+		} else {
+			for _, v := range c.Cfg.Models {
+				r = v
+				break
+			}
+		}
 	}
 	lcfg := llm.Config{Provider: r.Provider, Model: r.Model, Endpoint: chatEndpoint(c, r.Provider)}
 	if k, err := c.Credential(r.Provider); err == nil {

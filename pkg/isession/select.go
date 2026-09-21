@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/registry"
@@ -530,7 +531,7 @@ func cmdCompact(ctx *SessionCtx, args string) error {
 		ctx.Printf("Nothing to compact yet.\n")
 		return nil
 	}
-	eng := ctx.Core.EngineForRole("conversation")
+	eng := ctx.Core.EngineForRole(config.RoleConversation)
 	if eng.LLM == nil {
 		return fmt.Errorf("no model for summarization")
 	}

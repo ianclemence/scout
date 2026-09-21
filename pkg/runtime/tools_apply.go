@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/sources"
 )
 
@@ -49,7 +50,7 @@ func applyTools(c *Core) []*Tool {
 			ArgsHint:    `{"opportunity_id": "..."}`,
 			ArgsSchema:  map[string]string{"opportunity_id": "string"},
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
-				pr, err := c.DraftProposal(ctx, str(args, "opportunity_id"), c.EngineForRole("proposal"))
+				pr, err := c.DraftProposal(ctx, str(args, "opportunity_id"), c.EngineForRole(config.RoleWorker))
 				if err != nil {
 					return "", err
 				}
