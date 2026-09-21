@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ianclemence/scout/internal/csession"
 	"github.com/ianclemence/scout/internal/isession"
@@ -71,6 +72,9 @@ func initialModel(st *isession.ReplState) *model {
 	ta := textarea.New()
 	ta.Placeholder = ""
 	ta.Prompt = "› "
+	// No cursor-line background band: the prompt box stays visually clean.
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
 	ta.CharLimit = 4000
 	ta.SetWidth(80)
 	ta.SetHeight(3)
