@@ -401,6 +401,8 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 		m.openLogoutFlow()
 		return m, m.flushCmds()
 	}
+	m.st.Width = m.width
+	m.st.SwitchSession = m.switchSession
 	var out strings.Builder
 	st := m.st
 	prev := st.Out
@@ -474,6 +476,13 @@ func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 	m.tools = 0
 	m.st.History = append(m.st.History, llm.Message{Role: "user", Content: line})
 	_ = csession.AppendMessages(m.st.Core.DB, m.st.Sess.ID, []csession.Message{{Role: "user", Content: line}})
+	// Auto-name untitled sessions from the first message (Pi-style).
+	if m.st.Sess.Name == "interactive" || m.st.Sess.Name == "session" {
+		if name := autoName(line); name != "" {
+			_ = csession.Rename(m.st.Core.DB, m.st.Sess.ID, name)
+			m.st.Sess.Name = name
+		}
+	}
 	msgs := append([]llm.Message{}, m.st.History...)
 	prog := m.prog
 	printUser := tea.Println(m.renderEntry(entry{kind: eUser, text: line, at: time.Now()}))
@@ -553,6 +562,28 @@ func (m *model) removeStoredKey(provider string) (tea.Model, tea.Cmd) {
 	}
 	return m, tea.Println(renderEntryStatic(entry{kind: eNotice, text: "Removed stored key for " + provider + ". Environment variables are unchanged."}))
 }
+
+// autoName derives a session title from the first user message.
+func autoName(line string) string {
+	s := strings.Join(strings.Fields(line), " ")
+	r := []rune(s)
+	if len(r) > 40 {
+		s = string(r[:40]) + "…"
+	}
+	return s
+}
+func (m *model) switchSession(s *csession.Session) error {
+	m.st.Sess = s
+	m.st.History = nil
+	m.st.LastOpps = nil
+	if msgs, err := csession.LoadMessages(m.st.Core.DB, s.ID, 40); err == nil {
+		for _, mm := range msgs {
+			m.st.History = append(m.st.History, llm.Message{Role: mm.Role, Content: mm.Content})
+		}
+	}
+	return nil
+}
+
 func (m *model) resolveApproval(approve bool) (tea.Model, tea.Cmd) {
 	a := m.approval
 	m.approval = nil

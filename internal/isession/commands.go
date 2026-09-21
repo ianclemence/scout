@@ -32,6 +32,11 @@ type SessionCtx struct {
 	ResolveOpp func(ref string) (*domain.Opportunity, error)
 	// SetLastOpps records the last listing for index-based selection.
 	SetLastOpps func(opps []domain.Opportunity)
+	// Width is the terminal width for wrapping/tabular output.
+	// Zero means unknown (one-shot CLI): do not wrap, print full rows.
+	Width int
+	// SwitchSession, when set (TUI), switches the live session in place.
+	SwitchSession func(s *csession.Session) error
 }
 
 func (s *SessionCtx) Printf(format string, a ...any) { s.Out(format, a...) }
@@ -65,6 +70,10 @@ func Registry() []*Command {
 		{Name: "session", Description: "Current session info", Handler: cmdSession},
 		{Name: "sessions", Description: "List sessions", Handler: cmdSessions},
 		{Name: "new", Description: "Start a new session", Handler: cmdNew},
+		{Name: "name", Description: "Rename the session: /name <name>", ArgHint: "<name>", Handler: cmdName},
+		{Name: "export", Description: "Export transcript to markdown: /export <path>", ArgHint: "<path>", Handler: cmdExport},
+		{Name: "copy", Description: "Copy last assistant message (clipboard where available)", Handler: cmdCopy},
+		{Name: "keys", Description: "Keyboard shortcuts", Handler: cmdKeys},
 		{Name: "resume", Description: "Resume a session: /resume <id|name>", ArgHint: "<id|name>", Handler: cmdResume},
 		{Name: "clear", Description: "Clear screen (keeps history)", Handler: cmdClear},
 		{Name: "compact", Description: "Summarize and trim session context", Handler: cmdCompact},
@@ -186,8 +195,10 @@ func cmdOpps(ctx *SessionCtx, args string) error {
 		return nil
 	}
 	ctx.Printf("OPPORTUNITIES (%d)\n", len(opps))
+	w := wOf(ctx)
 	for i, o := range opps {
-		ctx.Printf("%2d  %s\n    %s · %s\n", i+1, o.Title, shortID(o.ID), o.Status)
+		ctx.Printf("%s\n", cell(fmt.Sprintf("%2d  %s", i+1, o.Title), w))
+		ctx.Printf("    %s\n", cell(shortID(o.ID)+" · "+o.Source+" · "+o.Status, w))
 	}
 	return nil
 }
@@ -282,9 +293,14 @@ func cmdApprovals(ctx *SessionCtx, args string) error {
 		ctx.Printf("Nothing awaiting approval.\n")
 		return nil
 	}
+	w := wOf(ctx)
 	for _, a := range acts {
-		ctx.Printf("\nACTION REQUIRES APPROVAL\n  %s → %s  [risk %s]\n  %s\n  /approvals approve %s · /approvals reject %s\n",
-			a.ActionType, a.Target, a.RiskLevel, truncate80(a.Payload), shortID(a.ID), shortID(a.ID))
+		ctx.Printf("\nACTION REQUIRES APPROVAL\n")
+		ctx.Printf("  %s\n", cell(a.ActionType+" → "+a.Target+"  [risk "+a.RiskLevel+"]", w))
+		for _, ln := range wrapLines(a.Payload, w-4) {
+			ctx.Printf("  %s\n", ln)
+		}
+		ctx.Printf("  /approvals approve %s · /approvals reject %s\n", shortID(a.ID), shortID(a.ID))
 	}
 	return nil
 }
@@ -298,8 +314,9 @@ func cmdApplications(ctx *SessionCtx, args string) error {
 		ctx.Printf("No applications yet.\n")
 		return nil
 	}
+	w := wOf(ctx)
 	for _, a := range apps {
-		ctx.Printf("%s  %s  %s\n", shortID(a.OpportunityID), a.Stage, a.Source)
+		ctx.Printf("%s\n", cell(padRight(shortID(a.OpportunityID), 14)+padRight(a.Stage, 12)+a.Source, w))
 	}
 	return nil
 }
@@ -403,8 +420,13 @@ func cmdSources(ctx *SessionCtx, args string) error {
 	if err != nil {
 		return err
 	}
+	w := wOf(ctx)
 	for _, s := range srcs {
-		ctx.Printf("%s (%s) %s enabled=%v caps=%v\n", s.Name, s.Kind, s.Endpoint, s.Enabled, s.Capabilities)
+		en := "off"
+		if s.Enabled {
+			en = "on"
+		}
+		ctx.Printf("%s\n", cell(padRight(s.Name, 16)+padRight(s.Kind+" "+en, 14)+s.Endpoint, w))
 	}
 	return nil
 }
@@ -421,26 +443,31 @@ func cmdSkills(ctx *SessionCtx, args string) error {
 		return nil
 	}
 	for _, s := range reg.List() {
-		ctx.Printf("  %-28s triggers: %s\n", s.Name, strings.Join(s.Triggers, ", "))
+		ctx.Printf("%s\n", cell(padRight(s.Name, 28)+strings.Join(s.Triggers, ", "), wOf(ctx)))
 	}
 	return nil
 }
 
 func cmdTools(ctx *SessionCtx, args string) error {
 	for _, t := range ctx.Core.Tools() {
-		ctx.Printf("  %-26s %-14s %s\n", t.Name, t.Permission, t.Description)
+		ctx.Printf("%s\n", cell(padRight(t.Name, 26)+padRight(string(t.Permission), 15)+t.Description, wOf(ctx)))
 	}
 	return nil
 }
 
 func cmdProviders(ctx *SessionCtx, args string) error {
-	ctx.Printf("Provider   Configured  Models  Roles\n")
+	w := widthOf(ctx)
+	ctx.Printf("%s %s %s %s\n", padRight("Provider", 16), padRight("Cfg", 4), padRight("Models", 7), "Detail / roles")
 	for _, p := range ctx.Core.ProviderStatus(ctxBg()) {
 		mark := "✗"
 		if p.Configured {
 			mark = "✓"
 		}
-		ctx.Printf("  %-12s %s  %-8d %s\n  └ %s\n", p.Provider, mark, p.Models, strings.Join(p.Roles, ","), p.Detail)
+		roles := ""
+		if len(p.Roles) > 0 {
+			roles = " [" + strings.Join(p.Roles, ",") + "]"
+		}
+		ctx.Printf("%s\n", cell(padRight(p.Provider, 16)+" "+mark+"  "+padRight(itoa(p.Models), 7)+p.Detail+roles, w))
 	}
 	return nil
 }
@@ -456,12 +483,13 @@ func cmdSessions(ctx *SessionCtx, args string) error {
 	if err != nil {
 		return err
 	}
+	w := wOf(ctx)
 	for _, s := range list {
 		mark := ""
 		if s.ID == ctx.Session.ID {
 			mark = "  ← current"
 		}
-		ctx.Printf("%s  %s  %s/%s%s\n", shortID(s.ID), s.Name, s.Provider, s.Model, mark)
+		ctx.Printf("%s\n", cell(padRight(shortID(s.ID), 14)+padRight(s.Name, 18)+s.Provider+"/"+s.Model+mark, w))
 	}
 	return nil
 }
@@ -488,11 +516,145 @@ func cmdDoctor(ctx *SessionCtx, args string) error {
 func cmdQuit(ctx *SessionCtx, args string) error { return errQuit }
 
 // helpers shared with session.go
+// wOf is widthOf for terse call sites.
+func wOf(ctx *SessionCtx) int { return widthOf(ctx) }
+
+func itoa(n int) string {
+	if n == 0 {
+		return "–"
+	}
+	return fmt.Sprintf("%d", n)
+}
+
 func firstLine(s string) string {
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		return s[:i]
 	}
 	return s
+}
+
+// widthOf returns the render width, or 0 when unknown (no wrapping).
+func widthOf(ctx *SessionCtx) int {
+	if ctx.Width >= 20 {
+		return ctx.Width
+	}
+	return 0
+}
+
+// cell cuts s to at most w display cells (ANSI-aware). w<=0 passes through.
+func cell(s string, w int) string {
+	if w <= 0 || displayWidth(s) <= w {
+		return s
+	}
+	runes := []rune(stripANSI(s))
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if displayWidth(string(runes[:mid])) < w-1 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	if lo > 1 {
+		return string(runes[:lo-1]) + "…"
+	}
+	return "…"
+}
+
+// padRight pads s to exactly w display cells. w<=0 passes through.
+func padRight(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	if n := w - displayWidth(s); n > 0 {
+		return s + strings.Repeat(" ", n)
+	}
+	return s
+}
+
+// wrapLines word-wraps to w display cells. w<=0 returns lines unchanged.
+func wrapLines(s string, w int) []string {
+	if w < 20 {
+		return strings.Split(s, "\n")
+	}
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		if displayWidth(para) <= w {
+			out = append(out, para)
+			continue
+		}
+		var cur strings.Builder
+		curW := 0
+		for _, word := range strings.Fields(para) {
+			ww := displayWidth(word)
+			if curW == 0 {
+				cur.WriteString(word)
+				curW = ww
+				continue
+			}
+			if curW+1+ww > w {
+				out = append(out, cur.String())
+				cur.Reset()
+				cur.WriteString(word)
+				curW = ww
+				continue
+			}
+			cur.WriteString(" " + word)
+			curW += 1 + ww
+		}
+		out = append(out, cur.String())
+	}
+	return out
+}
+
+// displayWidth counts display cells without pulling in a TUI dependency.
+func displayWidth(s string) int {
+	w := 0
+	for _, r := range stripANSI(s) {
+		if r == '\n' {
+			continue
+		}
+		w += runeWidth(r)
+	}
+	return w
+}
+
+func runeWidth(r rune) int {
+	switch {
+	case r < 32 || (r >= 0x7f && r < 0xa0):
+		return 0
+	case r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a ||
+		(r >= 0x2e80 && r <= 0xa4cf && r != 0x303f) ||
+		(r >= 0xac00 && r <= 0xd7a3) ||
+		(r >= 0xf900 && r <= 0xfaff) ||
+		(r >= 0xfe30 && r <= 0xfe4f) ||
+		(r >= 0xff00 && r <= 0xff60) ||
+		(r >= 0xffe0 && r <= 0xffe6)):
+		return 2
+	}
+	return 1
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	i := 0
+	for i < len(s) {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && ((s[j] >= '0' && s[j] <= '9') || s[j] == ';' || s[j] == '?' || s[j] == '!') {
+				j++
+			}
+			if j < len(s) {
+				j++
+			}
+			i = j
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 func firstField(s string) string {

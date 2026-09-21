@@ -3,6 +3,7 @@ package csession
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ianclemence/scout/internal/store"
@@ -77,6 +78,15 @@ func List(db *store.Store) ([]Session, error) {
 		out = append(out, s)
 	}
 	return out, nil
+}
+
+func Rename(db *store.Store, id, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("name required")
+	}
+	_, err := db.DB.Exec(`UPDATE sessions SET name=?, updated_at=? WHERE id=?`, name, ts(time.Now().UTC()), id)
+	return err
 }
 
 func Touch(db *store.Store, id, provider, model string) {

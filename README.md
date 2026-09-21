@@ -249,6 +249,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `/help` | All commands |
 | `/status` | Provider, model, thinking, profile, counts |
 | `/profile`, `/cv` | Who Scout thinks you are; resume content and citable items |
+| `/profile import <path>` | Import a CV without leaving the session |
 | `/opportunities [query]`, `/opportunity <id\|#>`, `/discover` | Pipeline intake |
 | `/analyze <id>`, `/proposal <id>` | Fit reasoning and drafting |
 | `/approvals [approve\|reject <id>]` | Decide consequential actions |
@@ -259,8 +260,9 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `/models`, `/providers`, `/sources` | Catalog, credentials, integrations |
 | `/skills`, `/tools` | Skill workflows, tool registry with permission classes |
 | `/login <provider>`, `/logout <provider>` | Key management |
-| `/session`, `/sessions`, `/new`, `/resume`, `/compact`, `/clear` | Session lifecycle |
-| `/doctor`, `/quit` | Diagnostics, exit |
+| `/session`, `/sessions`, `/new`, `/resume`, `/compact`, `/clear` | Session lifecycle (resume/new switch in place) |
+| `/name <name>`, `/export <path>`, `/copy`, `/keys` | Rename, export transcript, copy answer, shortcuts |
+| `/doctor`, `/quit` | Full diagnostics in-session, exit |
 
 Anything without a slash is a request to the agent. Piped (non-TTY) input falls back to the classic line loop automatically.
 

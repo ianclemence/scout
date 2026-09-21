@@ -501,7 +501,20 @@ func cellTruncate(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	return truncate(s, w)
+	runes := []rune(s)
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi) / 2
+		if lipgloss.Width(string(runes[:mid])) < w-1 {
+			lo = mid + 1
+		} else {
+			hi = mid
+		}
+	}
+	if lo > 1 {
+		return string(runes[:lo-1]) + "…"
+	}
+	return "…"
 }
 
 func wrapFirst(s string, w int) string {

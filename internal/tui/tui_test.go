@@ -159,6 +159,30 @@ func TestFooter(t *testing.T) {
 	}
 }
 
+func TestAutoName(t *testing.T) {
+	if got := autoName("  Find me Go backend work please  "); got != "Find me Go backend work please" {
+		t.Fatalf("bad name: %q", got)
+	}
+	if got := autoName(strings.Repeat("x", 100)); len([]rune(got)) > 41 {
+		t.Fatalf("name not capped: %q", got)
+	}
+}
+
+func TestSwitchSession(t *testing.T) {
+	core := testCore(t)
+	a, _ := csession.Create(core.DB, "aaa", "ollama", "m")
+	b, _ := csession.Create(core.DB, "bbb", "ollama", "m")
+	_ = csession.AppendMessages(core.DB, b.ID, []csession.Message{{Role: "user", Content: "hi b"}})
+	st := &isession.ReplState{Core: core, Sess: a}
+	m := initialModel(st)
+	if err := m.switchSession(b); err != nil {
+		t.Fatal(err)
+	}
+	if m.st.Sess.ID != b.ID || len(m.st.History) != 1 || m.st.History[0].Content != "hi b" {
+		t.Fatal("session switch must swap identity + history")
+	}
+}
+
 func testCore(t *testing.T) *runtime.Core {
 	t.Helper()
 	cfg := config.Default()

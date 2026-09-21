@@ -46,3 +46,18 @@ func TestSessionRoundtrip(t *testing.T) {
 		t.Fatalf("expected compacted pair, got %d", len(msgs))
 	}
 }
+
+func TestRename(t *testing.T) {
+	db := testDB(t)
+	s, _ := Create(db, "old", "ollama", "m")
+	if err := Rename(db, s.ID, "new-name"); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := Get(db, s.ID)
+	if got.Name != "new-name" {
+		t.Fatal("rename failed")
+	}
+	if err := Rename(db, s.ID, "  "); err == nil {
+		t.Fatal("blank rename should fail")
+	}
+}

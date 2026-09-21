@@ -40,6 +40,10 @@ type ReplState struct {
 	History  []llm.Message // in-memory conversation context for the agent
 	// Out receives command output. Defaults to stdout printing.
 	Out func(format string, a ...any)
+	// Width is the terminal width for command output (0 = unknown).
+	Width int
+	// SwitchSession swaps the live session (TUI sets this).
+	SwitchSession func(s *csession.Session) error
 }
 
 func (r *ReplState) ctx() *SessionCtx {
@@ -48,8 +52,10 @@ func (r *ReplState) ctx() *SessionCtx {
 		out = func(f string, a ...any) { fmt.Printf(f, a...) }
 	}
 	return &SessionCtx{Core: r.Core, Session: r.Sess,
-		Out:        out,
-		ResolveOpp: r.resolveOpp,
+		Out:           out,
+		ResolveOpp:    r.resolveOpp,
+		Width:         r.Width,
+		SwitchSession: r.SwitchSession,
 		SetLastOpps: func(opps []domain.Opportunity) {
 			r.LastOpps = opps
 		},

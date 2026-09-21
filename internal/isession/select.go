@@ -2,6 +2,8 @@ package isession
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -130,8 +132,14 @@ func cmdNew(ctx *SessionCtx, args string) error {
 	if err != nil {
 		return err
 	}
+	if ctx.SwitchSession != nil {
+		if err := ctx.SwitchSession(s); err != nil {
+			return err
+		}
+		ctx.Printf("Switched to new session %s (%s).\n", s.ID[:12], name)
+		return nil
+	}
 	ctx.Printf("Started session %s (%s). Resume with /resume %s\n", s.ID[:12], name, s.ID[:12])
-	ctx.Printf("Note: this turn stays in the current session; restart `scout` with the new id or /resume it.\n")
 	return nil
 }
 
@@ -144,7 +152,113 @@ func cmdResume(ctx *SessionCtx, args string) error {
 	if err != nil {
 		return err
 	}
+	if ctx.SwitchSession != nil {
+		if err := ctx.SwitchSession(s); err != nil {
+			return err
+		}
+		ctx.Printf("Switched to session %s (%s).\n", s.ID[:12], s.Name)
+		return nil
+	}
 	ctx.Printf("Resume session %s (%s): exit and run `scout resume %s`.\n", s.ID[:12], s.Name, s.ID[:12])
+	return nil
+}
+
+func cmdName(ctx *SessionCtx, args string) error {
+	name := strings.TrimSpace(args)
+	if name == "" {
+		ctx.Printf("Session name: %s (rename with /name <name>).\n", ctx.Session.Name)
+		return nil
+	}
+	if err := csession.Rename(ctx.Core.DB, ctx.Session.ID, name); err != nil {
+		return err
+	}
+	ctx.Session.Name = name
+	ctx.Printf("Session renamed to %s.\n", name)
+	return nil
+}
+
+func cmdExport(ctx *SessionCtx, args string) error {
+	path := strings.TrimSpace(args)
+	if path == "" {
+		return fmt.Errorf("usage: /export <path>  (writes transcript markdown)")
+	}
+	msgs, err := csession.LoadMessages(ctx.Core.DB, ctx.Session.ID, 500)
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	b.WriteString("# Scout session: " + ctx.Session.Name + "\n\n")
+	for _, m := range msgs {
+		who := "You"
+		if m.Role == "assistant" {
+			who = "Scout"
+		}
+		b.WriteString("## " + who + "\n\n" + m.Content + "\n\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
+		return err
+	}
+	ctx.Printf("Exported %d messages to %s.\n", len(msgs), path)
+	return nil
+}
+
+func cmdCopy(ctx *SessionCtx, args string) error {
+	msgs, err := csession.LoadMessages(ctx.Core.DB, ctx.Session.ID, 20)
+	if err != nil {
+		return err
+	}
+	last := ""
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == "assistant" && strings.TrimSpace(msgs[i].Content) != "" {
+			last = msgs[i].Content
+			break
+		}
+	}
+	if last == "" {
+		return fmt.Errorf("no assistant message to copy yet")
+	}
+	if err := copyToClipboard(last); err != nil {
+		ctx.Printf("Clipboard unavailable (%s). Last answer printed below:\n\n%s\n", err, last)
+		return nil
+	}
+	ctx.Printf("Copied last answer (%d chars).\n", len(last))
+	return nil
+}
+
+func copyToClipboard(s string) error {
+	var cmd *exec.Cmd
+	switch {
+	case hasBin("wl-copy"):
+		cmd = exec.Command("wl-copy")
+	case hasBin("xclip"):
+		cmd = exec.Command("xclip", "-selection", "clipboard")
+	case hasBin("xsel"):
+		cmd = exec.Command("xsel", "-b")
+	case hasBin("pbcopy"):
+		cmd = exec.Command("pbcopy")
+	case hasBin("clip.exe"):
+		cmd = exec.Command("clip.exe")
+	default:
+		return fmt.Errorf("no clipboard tool (wl-copy/xclip/xsel/pbcopy)")
+	}
+	cmd.Stdin = strings.NewReader(s)
+	return cmd.Run()
+}
+
+func hasBin(name string) bool {
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func cmdKeys(ctx *SessionCtx, args string) error {
+	ctx.Printf("Keys:\n")
+	ctx.Printf("  enter        send · alt-enter newline in composer\n")
+	ctx.Printf("  esc          abort turn · close dialogs · quit when idle\n")
+	ctx.Printf("  ctrl+c       abort turn · quit when idle\n")
+	ctx.Printf("  ctrl+l       model picker\n")
+	ctx.Printf("  tab          complete palette selection\n")
+	ctx.Printf("  ↑↓           navigate lists · history in line mode\n")
+	ctx.Printf("  1 / 2        approve / reject on the approval card\n")
 	return nil
 }
 
