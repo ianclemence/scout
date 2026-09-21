@@ -111,7 +111,7 @@ func usage() {
   scout providers              provider availability
   scout models                 model roles
   scout login <provider>       store API key (masked prompt)
-  scout integrations [list|test|add|token|enable|disable|remove]
+  scout integrations [list|test|login|add|token|enable|disable|remove]
                          work sources and MCP connectors (alias: sources)
   scout sessions [list]        persistent sessions
   scout skills [query]         agent skill registry

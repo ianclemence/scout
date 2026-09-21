@@ -6,7 +6,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/llm"
+	"github.com/ianclemence/scout/pkg/mcpauth"
 	"github.com/ianclemence/scout/pkg/profile"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/sources"
@@ -557,8 +560,74 @@ func cmdSources(ctx *SessionCtx, args string) error {
 		}
 		ctx.Printf("Removed %s.\n", parts[1])
 		return nil
+	case "login":
+		if len(parts) < 2 {
+			return fmt.Errorf("usage: /sources login <name>")
+		}
+		return cmdSourcesLogin(ctx, parts[1])
 	default:
-		return fmt.Errorf("usage: /sources [list|test <name>|add <name> <url>|token <name>|enable|disable|remove <name>]")
+		return fmt.Errorf("usage: /sources [list|test <name>|add <name> <url>|login <name>|token <name>|enable|disable|remove <name>]")
+	}
+}
+
+// cmdSourcesLogin runs the MCP OAuth 2.1 flow for a remote connector in line
+// mode: discovery, dynamic client registration, a loopback callback, and PKCE.
+// It completes on the callback or a pasted redirect URL/code.
+func cmdSourcesLogin(ctx *SessionCtx, ref string) error {
+	flow, name, err := ctx.Core.BeginMCPLogin(ctxBg(), ref)
+	if err != nil {
+		return err
+	}
+	defer flow.Close()
+	url := flow.AuthorizeURL()
+	ctx.Printf("Authorize %s by opening this URL in a browser:\n\n  %s\n\n", name, url)
+	_ = openBrowserLine(url)
+	ctx.Printf("Waiting for authorization… (or paste the redirect URL / code and press enter)\n")
+
+	type outcome struct {
+		cred *mcpauth.Credential
+		err  error
+	}
+	resCh := make(chan outcome, 1)
+	go func() {
+		cred, werr := flow.Wait(ctxBg())
+		resCh <- outcome{cred: cred, err: werr}
+	}()
+	inputCh := make(chan string, 1)
+	go func() {
+		line, _ := readLineCooked()
+		inputCh <- line
+	}()
+
+	var r outcome
+	select {
+	case r = <-resCh:
+	case line := <-inputCh:
+		if strings.TrimSpace(line) != "" && !flow.Submit(line) {
+			return fmt.Errorf("could not parse an authorization code from the input")
+		}
+		r = <-resCh
+	}
+	if r.err != nil {
+		return r.err
+	}
+	if err := ctx.Core.SaveMCPCredential(name, r.cred); err != nil {
+		return err
+	}
+	ctx.Printf("Signed in to %s. Credential stored (encrypted, never displayed).\n", name)
+	return nil
+}
+
+// openBrowserLine launches the platform browser for an authorization URL,
+// ignoring failure (the URL is printed for manual use).
+func openBrowserLine(u string) error {
+	switch goruntime.GOOS {
+	case "darwin":
+		return exec.Command("open", u).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+	default:
+		return exec.Command("xdg-open", u).Start()
 	}
 }
 
@@ -604,7 +673,7 @@ func printConnections(ctx *SessionCtx) error {
 			ctx.Printf("    %s\n", conn.Detail)
 		}
 	}
-	ctx.Printf("\nTest a source: /sources test <name> · authenticate: /sources token <name>\n")
+	ctx.Printf("\nSign in: /sources login <name> · test: /sources test <name> · paste a token: /sources token <name>\n")
 	return nil
 }
 

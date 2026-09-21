@@ -284,6 +284,9 @@ func (m *model) openSourceActions(name string) {
 		status = "not probed"
 	}
 	var items []pickItem
+	if conn.Kind != "mcp-stdio" {
+		items = append(items, pickItem{label: "Sign in", detail: "OAuth 2.1 — opens a browser to authorize", value: "signin"})
+	}
 	items = append(items, pickItem{label: "Test connection", detail: "read-only capability discovery", value: "test"})
 	if conn.Enabled {
 		items = append(items, pickItem{label: "Disable", detail: "hide from discovery and the agent", value: "disable"})
@@ -310,6 +313,10 @@ func sourceTarget(conn *runtime.Connection) string {
 func (m *model) runSourceAction(name, action string) string {
 	defer m.refreshConnHint()
 	switch action {
+	case "signin":
+		_, cmd := m.startMCPLogin(name)
+		m.nextCmd = cmd
+		return ""
 	case "test":
 		conn, err := m.st.Core.ProbeConnection(context.Background(), name, 10*time.Second)
 		if err != nil {

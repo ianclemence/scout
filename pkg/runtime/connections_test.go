@@ -2,9 +2,14 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
+	"github.com/ianclemence/scout/pkg/mcpauth"
 	"github.com/ianclemence/scout/pkg/mcpclient"
 )
 
@@ -169,5 +174,98 @@ func TestFindSourceResolvesNameAndPrefix(t *testing.T) {
 	}
 	if _, ok := c.findSource(reg, "nope"); ok {
 		t.Fatal("findSource should not resolve an unknown source")
+	}
+}
+
+// TestMCPAccessTokenResolvesOAuthAndPlain verifies that a connector's bearer
+// token is a plain stored token or a fresh OAuth access token.
+func TestMCPAccessTokenResolvesOAuthAndPlain(t *testing.T) {
+	c := testCore(t)
+	if err := c.AddMCPConnection("Upwork", "https://mcp.upwork.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	// Plain token.
+	if err := c.StoreConnectionToken("Upwork", "plain-token"); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.mcpAccessToken("Upwork"); got != "plain-token" {
+		t.Fatalf("plain token = %q", got)
+	}
+	// Fresh OAuth credential (no refresh needed, no network).
+	cred := &mcpauth.Credential{AccessToken: "oauth-access", RefreshToken: "r", ExpiresAt: time.Now().Add(time.Hour)}
+	if err := c.SaveMCPCredential("Upwork", cred); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.mcpAccessToken("Upwork"); got != "oauth-access" {
+		t.Fatalf("oauth token = %q", got)
+	}
+	st, err := c.MCPAuthStateOf("Upwork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.HasCredential || !st.OAuth || st.Expired {
+		t.Fatalf("unexpected auth state: %+v", st)
+	}
+}
+
+// TestBeginMCPLoginEndToEnd drives the whole connector login against a mock
+// OAuth host: discovery, registration, PKCE authorize, code exchange, storage,
+// and subsequent token resolution.
+func TestBeginMCPLoginEndToEnd(t *testing.T) {
+	mux := http.NewServeMux()
+	var base string
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"resource":              base + "/mcp",
+			"authorization_servers": []string{base},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{
+			"authorization_endpoint": base + "/authorize",
+			"token_endpoint":         base + "/token",
+			"registration_endpoint":  base + "/register",
+		})
+	})
+	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"client_id": "c1"})
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		if r.Form.Get("grant_type") != "authorization_code" || r.Form.Get("code") != "code-ok" {
+			http.Error(w, "bad", 400)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"access_token": "access-1", "refresh_token": "refresh-1", "expires_in": 3600})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	base = srv.URL
+
+	c := testCore(t)
+	if err := c.AddMCPConnection("Mock", base+"/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	flow, name, err := c.BeginMCPLogin(context.Background(), "Mock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer flow.Close()
+	u, err := url.Parse(flow.AuthorizeURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !flow.Submit("code-ok#" + u.Query().Get("state")) {
+		t.Fatal("submit rejected")
+	}
+	cred, err := flow.Wait(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.SaveMCPCredential(name, cred); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.mcpAccessToken(name); got != "access-1" {
+		t.Fatalf("resolved token = %q", got)
 	}
 }

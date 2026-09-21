@@ -3,6 +3,25 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.9.0] - 2026-09-21
+
+MCP account sign-in.
+
+- **Connect Upwork (and any remote MCP host) with OAuth 2.1.**
+  `scout integrations login Upwork` / `/sources login Upwork` performs the
+  full flow: protected-resource + authorization-server discovery, dynamic
+  client registration, PKCE authorization code against a `127.0.0.1` loopback
+  callback, and token exchange. The authorization URL opens in your browser;
+  a paste field handles a browser on another machine. Tokens are stored
+  encrypted and refreshed automatically.
+- Token resolution now transparently refreshes a connector's OAuth credential
+  when it is near expiry, so probes and discovery keep working.
+- The `/sources` picker gains a **Sign in** action for remote connectors;
+  `scout integrations login <name>` is the CLI equivalent (paste supported).
+- New `pkg/mcpauth` package: discovery (RFC 9728/8414), dynamic client
+  registration (RFC 7591), PKCE (RFC 7636), loopback callback, manual paste,
+  and refresh.
+
 ## [0.8.0] - 2026-09-21
 
 Model selector redesign, fuzzy search everywhere, and sign-in simplification.

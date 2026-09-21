@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ianclemence/scout/pkg/domain"
+	"github.com/ianclemence/scout/pkg/mcpauth"
 	"github.com/ianclemence/scout/pkg/mcpclient"
 	"github.com/ianclemence/scout/pkg/sources"
 )
@@ -100,8 +101,7 @@ func (c *Core) FindConnection(ref string) (*Connection, error) {
 	return nil, fmt.Errorf("no work source matches %q — /sources lists configured sources", ref)
 }
 
-// storedMCPTokens returns the set of source names that have an encrypted MCP
-// token. One query; callers never open a cursor while reading secrets.
+// storedMCPTokens returns the set of source names that have an encrypted MCP// token. One query; callers never open a cursor while reading secrets.
 func (c *Core) storedMCPTokens() map[string]bool {
 	out := map[string]bool{}
 	rows, err := c.DB.DB.Query(`SELECT key FROM secrets WHERE key LIKE 'mcp:%'`)
@@ -149,7 +149,7 @@ func (c *Core) ProbeConnection(ctx context.Context, ref string, timeout time.Dur
 	pctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	tok, _ := c.LoadSecret("mcp:" + target.Name)
+	tok := c.mcpAccessToken(target.Name)
 	mc := &mcpclient.Connector{ID: target.Name, Endpoint: target.Endpoint, Token: tok}
 	if target.Kind == "mcp-stdio" {
 		mc.Command = strings.Fields(target.Command)
@@ -295,6 +295,83 @@ func (c *Core) StoreConnectionToken(ref, token string) error {
 		return fmt.Errorf("empty token")
 	}
 	return c.SaveSecret("mcp:"+conn.Name, token)
+}
+
+// mcpAccessToken resolves a usable bearer token for a connector: a plain
+// stored token, or an OAuth credential whose access token is refreshed when it
+// is near expiry (the fresh token is persisted).
+func (c *Core) mcpAccessToken(name string) string {
+	s, err := c.LoadSecret("mcp:" + name)
+	if err != nil || s == "" {
+		return ""
+	}
+	cred, ok := mcpauth.Decode(s)
+	if !ok {
+		return s
+	}
+	if !cred.Expired() || cred.RefreshToken == "" {
+		return cred.AccessToken
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	fresh, err := mcpauth.Refresh(ctx, cred)
+	if err != nil {
+		return cred.AccessToken
+	}
+	_ = c.SaveSecret("mcp:"+name, fresh.Encode())
+	return fresh.AccessToken
+}
+
+// MCPAuthState reports how a connector is authenticated.
+type MCPAuthState struct {
+	HasCredential bool
+	OAuth         bool
+	Expired       bool
+}
+
+// MCPAuthStateOf inspects a connector's stored credential.
+func (c *Core) MCPAuthStateOf(ref string) (MCPAuthState, error) {
+	conn, err := c.FindConnection(ref)
+	if err != nil {
+		return MCPAuthState{}, err
+	}
+	s, _ := c.LoadSecret("mcp:" + conn.Name)
+	st := MCPAuthState{HasCredential: s != ""}
+	if cred, ok := mcpauth.Decode(s); ok {
+		st.OAuth = true
+		st.Expired = cred.Expired() && cred.RefreshToken == ""
+	}
+	return st, nil
+}
+
+// BeginMCPLogin starts an OAuth 2.1 flow for a remote MCP connector: discovery,
+// dynamic client registration, a loopback callback, and PKCE. It returns the
+// flow (surface AuthorizeURL to the user, then Wait or Submit) and the
+// canonical connection name used to store the resulting credential.
+func (c *Core) BeginMCPLogin(ctx context.Context, ref string) (*mcpauth.Flow, string, error) {
+	conn, err := c.FindConnection(ref)
+	if err != nil {
+		return nil, "", err
+	}
+	if conn.Kind == "mcp-stdio" {
+		return nil, "", fmt.Errorf("account sign-in is only for remote (HTTP) MCP sources")
+	}
+	if conn.Endpoint == "" {
+		return nil, "", fmt.Errorf("source %s has no endpoint", conn.Name)
+	}
+	flow, err := mcpauth.Begin(ctx, conn.Endpoint)
+	if err != nil {
+		return nil, "", err
+	}
+	return flow, conn.Name, nil
+}
+
+// SaveMCPCredential stores an OAuth credential for a connector (encrypted).
+func (c *Core) SaveMCPCredential(name string, cred *mcpauth.Credential) error {
+	if cred == nil {
+		return fmt.Errorf("no credential")
+	}
+	return c.SaveSecret("mcp:"+name, cred.Encode())
 }
 
 func connectionID(name string) string {

@@ -33,7 +33,9 @@ func (m *model) View() string {
 		b.WriteString(p)
 		b.WriteString("\n")
 	}
-	if m.login != nil {
+	if m.mcpLogin != nil {
+		b.WriteString(m.mcpLogin.view(m.width))
+	} else if m.login != nil {
 		b.WriteString(m.login.view(m.width))
 	} else if m.approval != nil {
 		b.WriteString(m.approvalCard())

@@ -3,11 +3,16 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	goruntime "runtime"
 	"strings"
 	"time"
 
+	"github.com/ianclemence/scout/pkg/mcpauth"
 	"github.com/ianclemence/scout/pkg/runtime"
 )
 
@@ -91,6 +96,11 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 			fmt.Printf("  %s\n", conn.Detail)
 		}
 		return nil
+	case "login":
+		if len(args) < 2 {
+			return fmt.Errorf("usage: scout integrations login <name>")
+		}
+		return integrationsLoginCmd(c, args[1])
 	case "remove", "rm", "delete":
 		if len(args) < 2 {
 			return fmt.Errorf("usage: scout integrations remove <name>")
@@ -112,7 +122,72 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 	case "token":
 		return integrationsTokenCmd(c, args[1:])
 	default:
-		return fmt.Errorf("usage: scout integrations [list|add|test|token|enable|disable|remove]")
+		return fmt.Errorf("usage: scout integrations [list|add|test|login|token|enable|disable|remove]")
+	}
+}
+
+// integrationsLoginCmd runs the MCP OAuth 2.1 flow for a remote connector and
+// stores the resulting credential. It completes on the loopback callback or a
+// pasted redirect URL/code (for a browser on another machine).
+func integrationsLoginCmd(c *runtime.Core, ref string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	flow, name, err := c.BeginMCPLogin(ctx, ref)
+	if err != nil {
+		return err
+	}
+	defer flow.Close()
+
+	fmt.Printf("Authorize %s by opening this URL in a browser:\n\n  %s\n\n", name, flow.AuthorizeURL())
+	_ = openBrowserURL(flow.AuthorizeURL())
+	fmt.Println("Waiting for authorization… (or paste the redirect URL / code and press enter)")
+
+	type outcome struct {
+		cred *mcpauth.Credential
+		err  error
+	}
+	resCh := make(chan outcome, 1)
+	go func() {
+		cred, werr := flow.Wait(ctx)
+		resCh <- outcome{cred: cred, err: werr}
+	}()
+	inputCh := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+		inputCh <- strings.TrimSpace(line)
+	}()
+
+	var r outcome
+	select {
+	case r = <-resCh:
+	case line := <-inputCh:
+		if line != "" {
+			if !flow.Submit(line) {
+				return fmt.Errorf("could not parse an authorization code from the input")
+			}
+		}
+		r = <-resCh
+	}
+	if r.err != nil {
+		return r.err
+	}
+	if err := c.SaveMCPCredential(name, r.cred); err != nil {
+		return err
+	}
+	fmt.Println("signed in; credential stored (encrypted, never displayed).")
+	return nil
+}
+
+// openBrowserURL launches the platform browser, ignoring failure (the URL is
+// printed for manual use).
+func openBrowserURL(u string) error {
+	switch goruntime.GOOS {
+	case "darwin":
+		return exec.Command("open", u).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", u).Start()
+	default:
+		return exec.Command("xdg-open", u).Start()
 	}
 }
 

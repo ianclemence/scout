@@ -119,8 +119,11 @@ the line-mode fallback, and `scout help` all read it.
   name, kind (mcp / mcp-stdio), endpoint, enabled, auth state, discovered
   capabilities, and last-probe result.
 - `/sources add <name> <url | --command "…">` adds a connector.
+- `/sources login <name>` runs OAuth 2.1 account sign-in (discovery + dynamic
+  client registration + PKCE) with a `127.0.0.1` loopback callback and a paste
+  field for a remote browser.
 - `/sources test <name>` performs read-only capability discovery.
-- `/sources token <name>` stores an OAuth token (masked, encrypted).
+- `/sources token <name>` stores a bearer token manually (masked, encrypted).
 - The agent's `list_sources` / `get_source_capabilities` / `source_health`
   tools expose the same facts, so the conversational path is honest.
 

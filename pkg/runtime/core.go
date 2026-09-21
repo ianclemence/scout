@@ -652,7 +652,7 @@ func (c *Core) SourceRegistryWith(extra []sources.OpportunitySource) *sources.Re
 		rows.Close()
 	}
 	for _, r := range conns {
-		tok, _ := c.LoadSecret("mcp:" + r.name)
+		tok := c.mcpAccessToken(r.name)
 		conn, err := sources.ConnectorFor(r.kind, r.endpoint, r.command, tok)
 		if err != nil {
 			continue

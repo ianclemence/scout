@@ -188,6 +188,7 @@ This is the trust boundary. Nothing reaches any work source until you say so.
 
 ```bash
 scout integrations add Upwork https://mcp.upwork.com/mcp
+scout integrations login Upwork          # OAuth 2.1 sign-in (opens a browser)
 scout integrations list                 # what is configured, and its auth state
 scout integrations test Upwork          # read-only capability discovery
 ```
@@ -204,15 +205,22 @@ WORK SOURCES (1)
 
 `/sources` (alias `/integrations`) is the terminal view of every configured
 connector: kind, endpoint, enabled state, auth state, and discovered
-capabilities. Select a source to test it, enable/disable it, inspect its
-capabilities, or remove it. The same facts back the agent's `list_sources`,
-`get_source_capabilities`, and `source_health` tools — so asking Scout *"what
-MCP is configured?"* gives an honest answer instead of a guess.
+capabilities. Select a source to **sign in**, test it, enable/disable it,
+inspect its capabilities, or remove it. The same facts back the agent's
+`list_sources`, `get_source_capabilities`, and `source_health` tools — so
+asking Scout *"what MCP is configured?"* gives an honest answer instead of a
+guess.
 
-Full OAuth sign-in completes in the browser at Upwork's authorization page;
-the token is stored encrypted in Scout, never logged (`scout integrations
-token Upwork`). Until authenticated, discovery reports what the integration
-*can* do (search, proposals, messaging, contracts) and Scout maps those into
+**Account sign-in (`/sources login Upwork`, `scout integrations login Upwork`).**
+Scout performs Upwork's OAuth 2.1 flow directly: it discovers the protected
+resource and authorization-server metadata, registers a client dynamically,
+opens the authorization URL in your browser against a `127.0.0.1` loopback
+callback, and exchanges the code (PKCE) for tokens. When the browser is on
+another machine, paste the final redirect URL or code into the prompt. The
+tokens are stored encrypted and refreshed automatically; you can still paste a
+token manually with `scout integrations token Upwork`. Until authenticated,
+discovery reports what the integration *can* do (search, proposals, messaging,
+contracts) and Scout maps those into
 its normalized work-source model.
 
 Once connected, approved submissions execute through the official
@@ -263,7 +271,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `scout profile show\|import <file>` | Profile and CV evidence |
 | `scout providers` / `scout models [refresh [provider]]` | Providers and model catalog |
 | `scout login <provider>` | Store API key (masked prompt) |
-| `scout integrations [list\|test\|add\|token\|enable\|disable\|remove]` | Work sources and MCP connectors |
+| `scout integrations [list\|test\|login\|add\|token\|enable\|disable\|remove]` | Work sources and MCP connectors |
 | `scout sessions [list]` | Persistent sessions |
 | `scout skills [query]` / `scout tools` | Skill workflows and typed tool registry |
 | `scout doctor` | Diagnostics (DB, providers, Ollama, disk, version, service) |
@@ -363,7 +371,7 @@ Enabled with user lingering, so it starts at device boot without login. Never ex
 
 ## MCP
 
-**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, OAuth tokens stored encrypted. `/sources` (CLI: `scout integrations`) is the single connector surface: it lists every configured source with its auth state and discovered capabilities, and can test, add, enable/disable, or remove one. A dead endpoint is bounded by a hard timeout and reports `unavailable` — it can never hang a turn. Upwork is the first work source; other job platforms fit the same normalized model as they gain usable official interfaces. The domain never assumes one platform's concepts.
+**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, and OAuth 2.1 account sign-in (discovery + dynamic client registration + PKCE) with encrypted tokens refreshed automatically. `/sources` (CLI: `scout integrations`) is the single connector surface: it lists every configured source with its auth state and discovered capabilities, and can sign in, test, add, enable/disable, or remove one. A dead endpoint is bounded by a hard timeout and reports `unavailable` — it can never hang a turn. Upwork is the first work source; other job platforms fit the same normalized model as they gain usable official interfaces. The domain never assumes one platform's concepts.
 
 **Capability, then action** — a source's capabilities come from its own tool list, never from assumptions. When a source exposes a submit or message tool, Scout dispatches to it only after an approval is granted; when it does not, Scout says so instead of pretending.
 

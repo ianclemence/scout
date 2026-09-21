@@ -16,6 +16,7 @@ import (
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/isession"
 	"github.com/ianclemence/scout/pkg/llm"
+	"github.com/ianclemence/scout/pkg/mcpauth"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/version"
 )
@@ -100,6 +101,13 @@ type model struct {
 	palFilter string
 	login     *loginFlowUI
 	approval  *pendingApproval
+	// mcpLogin/mcpFlow track an in-flight MCP OAuth sign-in.
+	mcpLogin      *mcpLoginUI
+	mcpFlow       *mcpauth.Flow
+	mcpFlowCancel context.CancelFunc
+	// nextCmd is a command produced by a picker action (e.g. starting an MCP
+	// login) that the next Update should run alongside the flushed output.
+	nextCmd tea.Cmd
 	// connHint is a cached left-footer suffix naming a configured source
 	// that needs authentication (e.g. "Upwork needs auth"). It is refreshed
 	// when sources change, never queried every frame.
@@ -209,6 +217,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Println(m.welcomeCard())
 	case modelsRefreshedMsg:
 		return m.handleModelsRefreshed(msg)
+	case mcpLoginResultMsg:
+		return m.finishMCPLogin(msg)
 	}
 	if m.sel == nil && m.approval == nil {
 		var cmd tea.Cmd
@@ -292,6 +302,9 @@ func visualRows(s string, w int) int {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.mcpLogin != nil {
+		return m.handleMCPLoginKey(msg)
+	}
 	if m.login != nil {
 		return m.handleLoginKey(msg)
 	}
@@ -343,7 +356,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 						m.println(entry{kind: eNotice, text: out, at: time.Now()})
 					}
 				}
-				return m, m.flushCmds()
+				return m, tea.Batch(m.flushCmds(), m.takeNextCmd())
 			}
 			return m, nil
 		case "secondary":
@@ -522,6 +535,9 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 			m.openSources()
 			return m, m.flushCmds()
 		}
+		if sub := strings.Fields(args); len(sub) >= 2 && sub[0] == "login" {
+			return m.startMCPLogin(sub[1])
+		}
 	}
 	m.st.Width = m.width
 	m.st.SwitchSession = m.switchSession
@@ -559,6 +575,13 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 func (m *model) println(e entry) *model {
 	m.entries = append(m.entries, e)
 	return m
+}
+
+// takeNextCmd returns and clears a command produced by a picker action.
+func (m *model) takeNextCmd() tea.Cmd {
+	c := m.nextCmd
+	m.nextCmd = nil
+	return c
 }
 
 // flushCmds prints committed entries to scrollback as one block, separated
