@@ -3,6 +3,15 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.7] - 2026-09-21
+
+Self-update fix.
+
+- A downloaded release asset is now made executable (chmod 0755) before the
+  checksum check and smoke test. Release assets are stored without the
+  executable bit, so `scout update` previously failed with
+  `staged binary failed its smoke test: permission denied`.
+
 ## [0.7.6] - 2026-09-21
 
 Connector, reasoning-hygiene, and terminal release.
