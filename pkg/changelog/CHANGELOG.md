@@ -5,7 +5,7 @@ Newest first. Scout shows new entries on first launch after an update;
 
 ## [0.8.0] - 2026-09-21
 
-Model selector redesign and sign-in simplification.
+Model selector redesign, fuzzy search everywhere, and sign-in simplification.
 
 - **The `/model` selector now follows the Pi coding agent.** A bordered panel
   with a live fuzzy search (provider-first ranking), a list sorted current →
@@ -14,6 +14,16 @@ Model selector redesign and sign-in simplification.
   refreshes model catalogs in the background (15s bound) and reports the
   result. `/model <ref>` resolves exact references the Pi way: canonical
   `provider/id`, split forms, or a unique bare id.
+- **Fuzzy search everywhere.** The model selector's fuzzy matcher is now used
+  by every searchable surface: the `/` command palette, the list pickers
+  (sessions, approvals, sources, opportunities, applications, thinking), and
+  the login provider selector — fuzzy on the label, with a substring fallback
+  over secondary text.
+- **Streaming preview without a marker.** The live response preview no longer
+  appends a `▍` cursor; only the assistant text is shown, and the idle dock no
+  longer reserves an empty preview line.
+- **Consistent spacing.** The pickers and login panel use one blank line
+  between sections (title, search, list, footer), matching the model selector.
 - **Account sign-in removed.** `/login` goes straight to the provider selector
   and a masked API-key prompt; "Sign in with an account" (the Anthropic OAuth
   flow) is gone, along with `pkg/oauth`. The Anthropic provider still honors a

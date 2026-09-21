@@ -27,8 +27,12 @@ func (m *model) View() string {
 		return "starting Scout…"
 	}
 	var b strings.Builder
-	b.WriteString(m.dockPreview())
-	b.WriteString("\n")
+	// The streaming preview line is only present while a turn is producing
+	// text, so the idle dock stays tight.
+	if p := m.dockPreview(); p != "" {
+		b.WriteString(p)
+		b.WriteString("\n")
+	}
 	if m.login != nil {
 		b.WriteString(m.login.view(m.width))
 	} else if m.approval != nil {
@@ -54,23 +58,20 @@ func (m *model) View() string {
 }
 
 // dockPreview is one reserved line above the composer: the tail of the
-// streaming reply with a caret while a turn runs, blank when idle. Tool
-// internals are never shown here — the live activity is named in the
-// composer's top rule ("Working", "Searching work…") instead.
+// streaming reply while a turn runs, blank when idle. No cursor marker is
+// shown — the assistant text alone is the live preview. Tool internals are
+// never shown here; the live activity is named in the composer's top rule.
 func (m *model) dockPreview() string {
 	w := m.width
 	if w < 10 {
 		w = 10
 	}
-	if !m.working {
+	if !m.working || m.stream.Len() == 0 {
 		return ""
 	}
-	line := "▍"
-	if m.stream.Len() > 0 {
-		flat := strings.ReplaceAll(m.stream.String(), "\n", " ") + "▍"
-		lines := wrap(flat, w)
-		line = lines[len(lines)-1]
-	}
+	flat := strings.ReplaceAll(m.stream.String(), "\n", " ")
+	lines := wrap(flat, w)
+	line := lines[len(lines)-1]
 	return styleAssistant.Render(cellTruncate(line, w))
 }
 
@@ -426,23 +427,41 @@ func (m *model) footerEnds(left, right string) string {
 const paletteMaxRows = 8
 
 func (m *model) openPalette(filter string) {
-	items := []selItem{}
-	for _, c := range isession.Registry() {
-		if filter == "" || strings.HasPrefix(c.Name, filter) || strings.Contains(strings.ToLower(c.Description), strings.ToLower(filter)) {
-			// The palette shows the command name and a one-line description.
-			// The argument hint folds into the description ("<id> — …"),
-			// the way Pi's slash-command autocomplete composes it. No group
-			// or source tags: they are noise next to every row.
-			detail := c.Description
-			if c.ArgHint != "" {
-				if detail != "" {
-					detail = c.ArgHint + " — " + detail
-				} else {
-					detail = c.ArgHint
-				}
-			}
-			items = append(items, selItem{label: "/" + c.Name, detail: detail, value: "/" + c.Name})
+	commands := isession.Registry()
+	if f := strings.TrimSpace(filter); f != "" {
+		// Fuzzy-rank command names, then add any whose name or description
+		// contains the query as a substring (so "connect" finds /login).
+		matched := fuzzyFilter(commands, f, func(c *isession.Command) string { return c.Name })
+		seen := map[*isession.Command]bool{}
+		for _, c := range matched {
+			seen[c] = true
 		}
+		low := strings.ToLower(f)
+		for _, c := range commands {
+			if seen[c] {
+				continue
+			}
+			if strings.Contains(strings.ToLower(c.Name+" "+c.Description), low) {
+				matched = append(matched, c)
+			}
+		}
+		commands = matched
+	}
+	items := make([]selItem, 0, len(commands))
+	for _, c := range commands {
+		// The palette shows the command name and a one-line description.
+		// The argument hint folds into the description ("<id> — …"),
+		// the way Pi's slash-command autocomplete composes it. No group
+		// or source tags: they are noise next to every row.
+		detail := c.Description
+		if c.ArgHint != "" {
+			if detail != "" {
+				detail = c.ArgHint + " — " + detail
+			} else {
+				detail = c.ArgHint
+			}
+		}
+		items = append(items, selItem{label: "/" + c.Name, detail: detail, value: "/" + c.Name})
 	}
 	m.sel = &selector{title: "Commands", items: items}
 	m.selMode = "palette"

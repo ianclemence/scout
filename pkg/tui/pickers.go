@@ -58,25 +58,40 @@ func newListPicker(title, status, footer string, items []pickItem, act func(stri
 }
 
 func (u *listPickerUI) rebuild() {
-	q := strings.ToLower(strings.TrimSpace(u.search))
-	if q == "" {
-		u.filtered = u.items
-	} else {
-		var out []pickItem
-		for _, it := range u.items {
-			hay := strings.ToLower(it.label + " " + it.detail)
-			if strings.Contains(hay, q) {
-				out = append(out, it)
-			}
-		}
-		u.filtered = out
-	}
+	u.filtered = pickerFilter(u.items, u.search)
 	if u.cur >= len(u.filtered) {
 		u.cur = maxInt(0, len(u.filtered)-1)
 	}
 	if u.cur < 0 {
 		u.cur = 0
 	}
+}
+
+// pickerFilter ranks items by a fuzzy match on the primary label, then adds
+// items whose label+detail contains the query as a substring. This keeps the
+// model-selector's fuzzy ranking while still letting users search secondary
+// text (a session name, a source endpoint) without fuzzy matching across
+// unrelated words.
+func pickerFilter(items []pickItem, query string) []pickItem {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return items
+	}
+	matched := fuzzyFilter(items, q, func(it pickItem) string { return it.label })
+	seen := map[pickItem]bool{}
+	for _, it := range matched {
+		seen[it] = true
+	}
+	low := strings.ToLower(q)
+	for _, it := range items {
+		if seen[it] {
+			continue
+		}
+		if strings.Contains(strings.ToLower(it.label+" "+it.detail), low) {
+			matched = append(matched, it)
+		}
+	}
+	return matched
 }
 
 // picked returns the highlighted item, or ok=false when the list is empty.
@@ -150,40 +165,43 @@ func (u *listPickerUI) view(width int) string {
 	if u.status != "" {
 		b.WriteString(styleModelScopeHint.Render("  "+u.status) + "\n")
 	}
+	b.WriteString("\n")
 	search := u.search
 	if search == "" {
 		search = "type to filter…"
 	}
 	b.WriteString(styleModelSearch.Render("  "+search+"▍") + "\n")
+	b.WriteString("\n")
 	if len(u.filtered) == 0 {
 		b.WriteString(stylePaletteNoMatch.Render("  No matches") + "\n")
 	} else {
 		const maxRows = 10
 		off := scrollOffset(u.cur, len(u.filtered), maxRows)
 		end := minInt(off+maxRows, len(u.filtered))
+		col := listColumnWidth(u.filtered)
 		for i := off; i < end; i++ {
 			it := u.filtered[i]
+			selected := i == u.cur
 			cursor := "  "
-			if i == u.cur {
+			if selected {
 				cursor = stylePaletteSel.Render("→ ")
 			}
 			mark := "  "
 			if it.current {
 				mark = styleModelEnabled.Render("✓ ")
 			}
-			primary := cellTruncate(it.label, 30)
-			spacing := strings.Repeat(" ", maxInt(1, 32-lipgloss.Width(primary)))
-			row := cursor + mark + primary + spacing
-			if rem := width - lipgloss.Width(row) - 1; rem > 8 && it.detail != "" {
-				row += stylePaletteDesc.Render(cellTruncate(it.detail, rem))
+			label := cellTruncate(it.label, col-2)
+			spacing := strings.Repeat(" ", maxInt(2, col-lipgloss.Width(label)))
+			descWidth := width - 4 - col - 2
+			desc := ""
+			if descWidth > 8 {
+				desc = cellTruncate(it.detail, descWidth)
 			}
-			if i == u.cur {
-				row = cursor + mark + stylePaletteSel.Render(primary) + spacing
-				if it.detail != "" {
-					row += stylePaletteDesc.Render(cellTruncate(it.detail, maxInt(0, width-lipgloss.Width(row)-1)))
-				}
+			if selected {
+				b.WriteString(cursor + mark + stylePaletteSel.Render(label+spacing+desc) + "\n")
+			} else {
+				b.WriteString(cursor + mark + label + stylePaletteDesc.Render(spacing+desc) + "\n")
 			}
-			b.WriteString(row + "\n")
 		}
 		if off > 0 || end < len(u.filtered) {
 			b.WriteString(stylePaletteScroll.Render(fmt.Sprintf("  (%d/%d)", u.cur+1, len(u.filtered))) + "\n")
@@ -196,8 +214,27 @@ func (u *listPickerUI) view(width int) string {
 	if u.secondary != nil && u.secondaryHint != "" {
 		footer += " · ctrl+s " + u.secondaryHint
 	}
-	b.WriteString(styleModelScopeFooter.Render("  " + footer + " · esc cancel"))
+	b.WriteString("\n" + styleModelScopeFooter.Render("  "+footer+" · esc cancel"))
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// listColumnWidth returns the primary-column width for a picker list: the
+// widest visible label plus the gap, clamped to [paletteMinCol, paletteMaxCol].
+func listColumnWidth(items []pickItem) int {
+	widest := 0
+	for _, it := range items {
+		if n := lipgloss.Width(it.label); n > widest {
+			widest = n
+		}
+	}
+	widest += paletteColGap
+	if widest < paletteMinCol {
+		widest = paletteMinCol
+	}
+	if widest > paletteMaxCol {
+		widest = paletteMaxCol
+	}
+	return widest
 }
 
 // openSources opens the work-source manager. Selecting a source opens a

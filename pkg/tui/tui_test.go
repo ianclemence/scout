@@ -328,3 +328,28 @@ func TestLogoutListsStoredOnly(t *testing.T) {
 		t.Fatal("key should be removed")
 	}
 }
+
+// TestStreamingPreviewHasNoMarker ensures the live reply preview shows only
+// assistant text — no cursor marker.
+func TestStreamingPreviewHasNoMarker(t *testing.T) {
+	m := testModel()
+	m.width, m.ready = 80, true
+	m.working = true
+	m.stream.WriteString("partial answer")
+	if strings.Contains(m.dockPreview(), "▍") {
+		t.Fatal("streaming preview must not contain a cursor marker")
+	}
+	if !strings.Contains(m.dockPreview(), "partial answer") {
+		t.Fatalf("streaming preview should show the tail, got %q", m.dockPreview())
+	}
+}
+
+// TestIdleViewHasNoLeadingBlank ensures the idle dock does not reserve an empty
+// preview line, keeping spacing tight.
+func TestIdleViewHasNoLeadingBlank(t *testing.T) {
+	m := testModel()
+	m.width, m.height, m.ready = 80, 24, true
+	if strings.HasPrefix(m.View(), "\n") {
+		t.Fatalf("idle view must not start with a blank line:\n%q", m.View())
+	}
+}
