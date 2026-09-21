@@ -41,7 +41,9 @@ type scopedModelsUI struct {
 }
 
 func newScopedModelsUI(core *runtime.Core, sc isession.ScopedModels, curProv, curModel string) *scopedModelsUI {
-	all := isession.AvailableModels(core)
+	// The scoped selector lists the full catalog so any model can be enabled,
+	// even ones whose provider will be configured later.
+	all := isession.AllModels(core)
 	u := &scopedModelsUI{
 		all:      all,
 		byID:     map[string]registry.ModelInfo{},
@@ -421,30 +423,42 @@ const (
 )
 
 // modelPickerUI is the searchable /model selector with an all/scoped toggle.
+// "all" means every model from a configured provider (the usable catalog);
+// "scoped" is the user's enabled subset. Unconfigured providers are never
+// offered here — they remain resolvable by exact reference via AllModels.
 type modelPickerUI struct {
-	all      []registry.ModelInfo // full catalog
-	scoped   []registry.ModelInfo // scoped subset (may be empty)
-	active   []registry.ModelInfo
-	filtered []registry.ModelInfo
-	cur      int
-	scope    modelScope
-	search   string
-	errMsg   string
-	curProv  string
-	curModel string
-	defProv  string
-	defModel string
+	all        []registry.ModelInfo // configured-provider catalog ("all" scope)
+	scoped     []registry.ModelInfo // scoped subset, intersected with configured
+	active     []registry.ModelInfo
+	filtered   []registry.ModelInfo
+	cur        int
+	scope      modelScope
+	search     string
+	errMsg     string
+	curProv    string
+	curModel   string
+	defProv    string
+	defModel   string
+	configured bool // whether at least one provider is configured
 }
 
 func newModelPickerUI(core *runtime.Core, sc autoScope, curProv, curModel, defProv, defModel, initial string) *modelPickerUI {
-	all := isession.AvailableModels(core)
+	available := isession.AvailableModels(core)
+	configured := len(available) > 0
+	all := available
+	if !configured {
+		// Nothing configured yet: show the full catalog so the picker is still
+		// useful for browsing, and the view says why.
+		all = isession.AllModels(core)
+	}
 	u := &modelPickerUI{
-		all:      all,
-		curProv:  curProv,
-		curModel: curModel,
-		defProv:  defProv,
-		defModel: defModel,
-		search:   initial,
+		all:        all,
+		curProv:    curProv,
+		curModel:   curModel,
+		defProv:    defProv,
+		defModel:   defModel,
+		search:     initial,
+		configured: configured,
 	}
 	if !sc.AllEnabled() {
 		u.scoped = isession.FilterScoped(all, sc)
@@ -586,11 +600,17 @@ func (u *modelPickerUI) handleKey(key string) (sel registry.ModelInfo, doSelect,
 
 func (u *modelPickerUI) view(width int) string {
 	var b strings.Builder
-	if len(u.scoped) > 0 {
+	switch {
+	case len(u.scoped) > 0:
 		b.WriteString(u.scopeText() + "\n")
 		b.WriteString(styleModelScopeHint.Render("  tab scope (all/scoped)") + "\n")
-	} else {
-		b.WriteString(styleModelScopeWarn.Render("Only showing models from configured providers. Use /login to add providers.") + "\n")
+	case u.configured:
+		// "all" scope, configured providers present: the list really is the
+		// configured subset.
+		b.WriteString(styleModelScopeHint.Render("Showing models from configured providers.") + "\n")
+	default:
+		// Nothing configured: we fall back to the full catalog, and say so.
+		b.WriteString(styleModelScopeWarn.Render("No providers configured — showing all known models. Use /login to add providers.") + "\n")
 	}
 	b.WriteString(styleModelSearch.Render("  /"+u.search+"_") + "\n")
 

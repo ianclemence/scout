@@ -82,6 +82,7 @@ modest hardware. These choices follow from that:
 | Terminal UX | Scrollback transcript + dock composer + status footer | Keeps full history while the live area stays small and stable |
 | Sessions | SQLite sessions: create / resume / compact | Durable without a daemon; compact keeps context bounded |
 | Providers | Interface + 5 providers + registry + env/file/stored keys | One shape for cloud and local models; keys never in config files |
+| Model picking | `AllModels` (full registry, resolution) vs `AvailableModels` (configured only, selection) | Selectors offer only usable models; builtins stay available offline and for exact references |
 | Agent loop | ReAct tool blocks + streamed events + per-tool call budget | Provider-agnostic, works on small local models, no per-provider tool binding |
 | Tools | Typed registry + permission classes + approvals | Every capability is auditable and gated |
 | Approvals | PendingAction records + lifecycle events | Consequential actions are records, not side effects |

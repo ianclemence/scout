@@ -2,6 +2,7 @@ package tui
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ianclemence/scout/pkg/config"
@@ -24,6 +25,14 @@ func uiTestCore(t *testing.T) *runtime.Core {
 		t.Fatal(err)
 	}
 	return core
+}
+
+// uiConfigure marks a provider configured by storing a credential.
+func uiConfigure(t *testing.T, core *runtime.Core, provider string) {
+	t.Helper()
+	if err := core.SaveSecret("llm:"+provider, "test-key"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestScopedUI_ToggleFromAll(t *testing.T) {
@@ -119,9 +128,11 @@ func TestScopedUI_PersistKey(t *testing.T) {
 
 func TestModelPicker_ScopeToggle(t *testing.T) {
 	core := uiTestCore(t)
+	uiConfigure(t, core, "deepseek")
+	uiConfigure(t, core, "anthropic")
 	sc := isession.ScopedModels{}
-	sc.Set([]string{"ollama/qwen3:0.6b"})
-	p := newModelPickerUI(core, sc, "ollama", "qwen3:0.6b", "", "", "")
+	sc.Set([]string{"deepseek/deepseek-flash"})
+	p := newModelPickerUI(core, sc, "deepseek", "deepseek-flash", "", "", "")
 	if p.scope != scopeScoped {
 		t.Fatal("picker should start scoped when a scope is set")
 	}
@@ -133,7 +144,7 @@ func TestModelPicker_ScopeToggle(t *testing.T) {
 		t.Fatal("tab should switch to all")
 	}
 	if len(p.active) < 2 {
-		t.Fatalf("all scope should show the full catalog, got %d", len(p.active))
+		t.Fatalf("all scope should show the configured catalog, got %d", len(p.active))
 	}
 	// With no scope configured the toggle is inert.
 	sc2 := isession.ScopedModels{}
@@ -149,6 +160,7 @@ func TestModelPicker_ScopeToggle(t *testing.T) {
 
 func TestModelPicker_SearchAndSelect(t *testing.T) {
 	core := uiTestCore(t)
+	uiConfigure(t, core, "anthropic")
 	p := newModelPickerUI(core, isession.ScopedModels{}, "", "", "", "", "")
 	// Type "haiku" and confirm the filtered list narrows.
 	for _, r := range "haiku" {
@@ -165,12 +177,63 @@ func TestModelPicker_SearchAndSelect(t *testing.T) {
 
 func TestModelPicker_DefaultPin(t *testing.T) {
 	core := uiTestCore(t)
+	uiConfigure(t, core, "deepseek")
 	p := newModelPickerUI(core, isession.ScopedModels{}, "", "", "deepseek", "deepseek-flash", "default")
 	if len(p.filtered) == 0 {
 		t.Fatal("default search should match its model")
 	}
 	if p.filtered[0].ID != "deepseek-flash" {
 		t.Fatalf("default model should pin first, got %s", p.filtered[0].ID)
+	}
+}
+
+// TestModelPicker_HidesUnconfiguredProviders is the core regression: the picker
+// must not offer models whose provider is not configured (Ollama counts as
+// configured when reachable, so it may legitimately appear).
+func TestModelPicker_HidesUnconfiguredProviders(t *testing.T) {
+	core := uiTestCore(t)
+	uiConfigure(t, core, "deepseek")
+	configured := core.ConfiguredProviders()
+	p := newModelPickerUI(core, isession.ScopedModels{}, "", "", "", "", "")
+	for _, m := range p.active {
+		if !configured[m.Provider] {
+			t.Fatalf("picker offered unconfigured provider %q", m.Provider)
+		}
+	}
+	if !p.configured {
+		t.Fatal("configured should be true when a provider has a key")
+	}
+	sawDeepseek := false
+	for _, m := range p.active {
+		if m.Provider == "deepseek" {
+			sawDeepseek = true
+		}
+	}
+	if !sawDeepseek {
+		t.Fatal("configured deepseek models should be offered")
+	}
+}
+
+// TestModelPicker_FallsBackWhenNothingConfigured ensures a fresh install can
+// still browse the catalog, with the honest "no providers" warning.
+func TestModelPicker_FallsBackWhenNothingConfigured(t *testing.T) {
+	core := uiTestCore(t)
+	if core.ConfiguredProviders()["ollama"] {
+		t.Skip("Ollama is reachable in this environment; fallback path not exercised")
+	}
+	p := newModelPickerUI(core, isession.ScopedModels{}, "", "", "", "", "")
+	if p.configured {
+		t.Fatal("configured should be false with no credentials")
+	}
+	if len(p.active) == 0 {
+		t.Fatal("fallback catalog should not be empty")
+	}
+	v := p.view(100)
+	if !strings.Contains(v, "No providers configured") {
+		t.Fatalf("fallback warning missing:\n%s", v)
+	}
+	if strings.Contains(v, "Only showing models from configured providers") {
+		t.Fatalf("fallback must not claim it is showing configured providers:\n%s", v)
 	}
 }
 

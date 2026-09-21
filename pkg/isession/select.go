@@ -183,9 +183,11 @@ func switchSessionModel(ctx *SessionCtx, prov, model string) error {
 	return nil
 }
 
-// exactModelExists reports whether provider/model is in the registry catalog.
+// exactModelExists reports whether provider/model is a known registry model.
+// Resolution uses the full catalog (AllModels), so an explicitly named model
+// can still be selected even when its provider is not yet configured.
 func exactModelExists(ctx *SessionCtx, prov, model string) bool {
-	for _, m := range AvailableModels(ctx.Core) {
+	for _, m := range AllModels(ctx.Core) {
 		if m.Provider == prov && m.ID == model {
 			return true
 		}
@@ -193,8 +195,8 @@ func exactModelExists(ctx *SessionCtx, prov, model string) bool {
 	return false
 }
 
-// selectorModels returns the model set the /model selector should offer:
-// the scoped set when active, otherwise the full catalog.
+// selectorModels returns the model set the /model selector should offer: the
+// configured-provider catalog, further narrowed by the scoped set when active.
 func selectorModels(ctx *SessionCtx) []registry.ModelInfo {
 	models := AvailableModels(ctx.Core)
 	if ctx.ScopedModels != nil {
@@ -232,9 +234,10 @@ func modelNote(m registry.ModelInfo) string {
 }
 
 // scopedModelsLineUI is the non-TTY fallback for /scoped-models: it prints the
-// current enable/order state and accepts toggles and reorders by number.
+// current enable/order state and accepts toggles and reorders by number. It
+// lists the full catalog so any model can be enabled in advance.
 func scopedModelsLineUI(ctx *SessionCtx, args string) error {
-	models := AvailableModels(ctx.Core)
+	models := AllModels(ctx.Core)
 	sc := ScopedModels{}
 	if ctx.ScopedModels != nil {
 		sc = ctx.ScopedModels()

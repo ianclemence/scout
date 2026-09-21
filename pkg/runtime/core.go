@@ -435,6 +435,57 @@ type ProviderSummary struct {
 	Roles      []string
 }
 
+// providerEnv maps a provider to its environment-variable credential key.
+var providerEnv = map[string]string{
+	"openai":            "OPENAI_API_KEY",
+	"anthropic":         "ANTHROPIC_API_KEY",
+	"deepseek":          "DEEPSEEK_API_KEY",
+	"moonshot":          "MOONSHOT_API_KEY",
+	"openai_compatible": "OPENAI_COMPAT_KEY",
+}
+
+// providerOrder is the stable provider listing order used by all interfaces.
+var providerOrder = []string{"ollama", "openai", "anthropic", "deepseek", "moonshot", "openai_compatible"}
+
+// providerConfigured reports whether a provider is usable and why, using the
+// single definition every interface shares (picker, /providers, /login).
+// Ollama is configured when reachable; key providers when a credential is in
+// the store or environment; openai_compatible when a base URL is set.
+func (c *Core) providerConfigured(p string) (bool, string) {
+	switch p {
+	case "ollama":
+		if probeOllama(c.Cfg.OllamaHost) {
+			return true, "reachable " + c.Cfg.OllamaHost
+		}
+		return false, "unreachable " + c.Cfg.OllamaHost
+	default:
+		if sec, err := c.LoadSecret("llm:" + p); err == nil && sec != "" {
+			return true, "key in credential store"
+		}
+		if env := providerEnv[p]; env != "" && os.Getenv(env) != "" {
+			return true, "key in environment (" + env + ")"
+		}
+		if p == "openai_compatible" {
+			if url := c.Registry().Endpoint("openai_compatible"); url != "" {
+				return true, "endpoint " + url
+			}
+		}
+		return false, "no key — /login " + p
+	}
+}
+
+// ConfiguredProviders returns the set of provider ids that are usable right
+// now. It is the single source of truth for "configured" across the model
+// picker, /providers, and /login.
+func (c *Core) ConfiguredProviders() map[string]bool {
+	out := make(map[string]bool, len(providerOrder))
+	for _, p := range providerOrder {
+		ok, _ := c.providerConfigured(p)
+		out[p] = ok
+	}
+	return out
+}
+
 // ProviderStatus merges credentials, registry, and role assignments.
 func (c *Core) ProviderStatus(ctx context.Context) []ProviderSummary {
 	reg := c.Registry()
@@ -445,38 +496,19 @@ func (c *Core) ProviderStatus(ctx context.Context) []ProviderSummary {
 		}
 	}
 	counts := map[string]int{}
-	sources := map[string]map[string]bool{}
 	for _, m := range reg.List(ctx, "") {
 		counts[m.Provider]++
-		if sources[m.Provider] == nil {
-			sources[m.Provider] = map[string]bool{}
-		}
-		sources[m.Provider][m.Source] = true
 	}
 	var out []ProviderSummary
-	for _, p := range []string{"ollama", "openai", "anthropic", "deepseek", "moonshot", "openai_compatible"} {
-		s := ProviderSummary{Provider: p, Roles: rolesByProv[p]}
-		switch p {
-		case "ollama":
-			if probeOllama(c.Cfg.OllamaHost) {
-				s.Configured = true
-				s.Detail = "reachable " + c.Cfg.OllamaHost
-			} else {
-				s.Detail = "unreachable " + c.Cfg.OllamaHost
-			}
-		default:
-			if sec, err := c.LoadSecret("llm:" + p); err == nil && sec != "" {
-				s.Configured = true
-				s.Detail = "key in credential store"
-			} else if env := map[string]string{"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "moonshot": "MOONSHOT_API_KEY", "openai_compatible": "OPENAI_COMPAT_KEY"}[p]; env != "" && os.Getenv(env) != "" {
-				s.Configured = true
-				s.Detail = "key in environment (" + env + ")"
-			} else {
-				s.Detail = "no key — /login " + p
-			}
-		}
-		s.Models = counts[p]
-		out = append(out, s)
+	for _, p := range providerOrder {
+		ok, detail := c.providerConfigured(p)
+		out = append(out, ProviderSummary{
+			Provider:   p,
+			Configured: ok,
+			Detail:     detail,
+			Models:     counts[p],
+			Roles:      rolesByProv[p],
+		})
 	}
 	return out
 }

@@ -25,6 +25,14 @@ func testCore(t *testing.T) *runtime.Core {
 	return core
 }
 
+// configureProvider stores a credential so the provider counts as configured.
+func configureProvider(t *testing.T, core *runtime.Core, provider string) {
+	t.Helper()
+	if err := core.SaveSecret("llm:"+provider, "test-key"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestScopedModelsPersistence(t *testing.T) {
 	core := testCore(t)
 	if sc := LoadScopedModels(core); !sc.AllEnabled() {
@@ -56,7 +64,9 @@ func TestScopedModelsPersistence(t *testing.T) {
 
 func TestScopedModelsCoveringAllCollapses(t *testing.T) {
 	core := testCore(t)
-	all := AvailableModels(core)
+	// Normalization is against the full catalog, so an explicit list covering
+	// every known model collapses to "all enabled".
+	all := AllModels(core)
 	ids := make([]string, 0, len(all))
 	for _, m := range all {
 		ids = append(ids, m.Provider+"/"+m.ID)
@@ -64,30 +74,87 @@ func TestScopedModelsCoveringAllCollapses(t *testing.T) {
 	if err := SaveScopedModels(core, ids); err != nil {
 		t.Fatal(err)
 	}
-	// An explicit list covering every model collapses to "all enabled".
 	if !LoadScopedModels(core).AllEnabled() {
 		t.Fatal("full coverage should collapse to all-enabled")
 	}
 }
 
+func TestAvailableModelsFiltersConfiguredProviders(t *testing.T) {
+	core := testCore(t)
+	// The available set contains exactly the models from providers reported as
+	// configured (which includes a reachable Ollama, if one is running).
+	configured := core.ConfiguredProviders()
+	avail := AvailableModels(core)
+	for _, m := range avail {
+		if !configured[m.Provider] {
+			t.Fatalf("available set leaked unconfigured provider %q", m.Provider)
+		}
+	}
+	// Every model from a configured provider must be present.
+	for _, m := range AllModels(core) {
+		if !configured[m.Provider] {
+			continue
+		}
+		found := false
+		for _, a := range avail {
+			if a.Provider == m.Provider && a.ID == m.ID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("configured model %s/%s missing from available set", m.Provider, m.ID)
+		}
+	}
+	// A newly configured provider contributes its models and nothing else.
+	configureProvider(t, core, "deepseek")
+	configured = core.ConfiguredProviders()
+	avail = AvailableModels(core)
+	sawDeepseek := false
+	for _, m := range avail {
+		if !configured[m.Provider] {
+			t.Fatalf("available set leaked unconfigured provider %q", m.Provider)
+		}
+		if m.Provider == "deepseek" {
+			sawDeepseek = true
+		}
+	}
+	if !sawDeepseek {
+		t.Fatal("expected deepseek models after configuring it")
+	}
+	// AllModels must be a superset that still includes unconfigured providers
+	// as long as one exists.
+	for _, m := range AllModels(core) {
+		if !configured[m.Provider] {
+			return // found the expected superset member
+		}
+	}
+	t.Log("all known providers are configured in this environment; superset check skipped")
+}
+
 func TestFilterScopedModels(t *testing.T) {
 	core := testCore(t)
+	configureProvider(t, core, "deepseek")
 	all := AvailableModels(core)
 	var sc ScopedModels
 	got := FilterScoped(all, sc)
 	if len(got) != len(all) {
-		t.Fatalf("all-enabled should return full catalog: %d vs %d", len(got), len(all))
+		t.Fatalf("all-enabled should return the input catalog: %d vs %d", len(got), len(all))
 	}
-	sc.Set([]string{"ollama/qwen3:0.6b"})
+	sc.Set([]string{"deepseek/deepseek-flash"})
 	got = FilterScoped(all, sc)
-	if len(got) != 1 || got[0].Provider != "ollama" {
+	if len(got) != 1 || got[0].ID != "deepseek-flash" {
 		t.Fatalf("scoped filter wrong: %+v", got)
 	}
 }
 
 func TestCycleModel(t *testing.T) {
 	core := testCore(t)
+	configureProvider(t, core, "deepseek")
 	all := AvailableModels(core)
+	if len(all) < 2 {
+		t.Skip("need at least two configured models to test cycling")
+	}
 	var sc ScopedModels
 	next, ok := CycleModel(all, sc, all[0].Provider, all[0].ID)
 	if !ok {
