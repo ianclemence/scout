@@ -150,7 +150,19 @@ func initialModel(st *isession.ReplState) *model {
 	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
 	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
 	ta.Focus()
-	return &model{st: st, ta: ta}
+	m := &model{st: st, ta: ta}
+	// Bind the UI callbacks up front so any picker opened from the palette has
+	// a live action to run; without this a session picker could print a notice
+	// instead of switching.
+	if st != nil {
+		st.SwitchSession = m.switchSession
+		st.OpenModelSelector = m.openModelSelector
+		st.OpenThinking = m.openThinking
+		st.OpenSessions = m.openSessions
+		st.OpenApprovals = m.openApprovals
+		st.OpenSources = m.openSources
+	}
+	return m
 }
 
 // silenceStderr parks the process stderr on /dev/null and silences the std
@@ -556,6 +568,16 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 	if i := strings.Index(line, " "); i >= 0 {
 		name, args = line[:i], strings.TrimSpace(line[i+1:])
 	}
+	// Bind the UI callbacks BEFORE any branch can open a picker. Several
+	// commands (sessions, resume, model, …) open a picker that later invokes
+	// these; binding them here means the picker's action can never observe a
+	// nil callback and fall back to printing a notice instead of acting.
+	m.st.SwitchSession = m.switchSession
+	m.st.OpenModelSelector = m.openModelSelector
+	m.st.OpenThinking = m.openThinking
+	m.st.OpenSessions = m.openSessions
+	m.st.OpenApprovals = m.openApprovals
+	m.st.OpenSources = m.openSources
 	switch name {
 	case "login":
 		m.openLoginFlow(args)
@@ -609,12 +631,6 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 		}
 	}
 	m.st.Width = m.width
-	m.st.SwitchSession = m.switchSession
-	m.st.OpenModelSelector = m.openModelSelector
-	m.st.OpenThinking = m.openThinking
-	m.st.OpenSessions = m.openSessions
-	m.st.OpenApprovals = m.openApprovals
-	m.st.OpenSources = m.openSources
 	var out strings.Builder
 	st := m.st
 	prev := st.Out

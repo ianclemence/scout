@@ -370,46 +370,99 @@ func (m *model) openThinking() {
 	m.picker = p
 }
 
-// openSessions opens the interactive session picker. Selecting a session
-// switches to it in place (the TUI's resume path).
+// openSessions opens the session selector. Each row shows a human title, the
+// model, and a relative age, with the current session marked; selecting one
+// switches in place and renders that session's conversation, so the picker
+// behaves like a resume rather than a notice.
 func (m *model) openSessions() {
 	list, err := csession.List(m.st.Core.DB)
 	if err != nil {
 		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
 		return
 	}
+	if len(list) == 0 {
+		m.println(entry{kind: eNotice, text: "No sessions yet.", at: time.Now()})
+		return
+	}
 	var items []pickItem
-	for _, s := range list {
-		detail := s.Provider + "/" + s.Model
-		if s.Name != "" {
-			detail = s.Name + " · " + detail
+	for i := range list {
+		s := &list[i]
+		title := strings.TrimSpace(s.Name)
+		if title == "" || title == "interactive" {
+			title = firstUserLine(m.st.Core, s.ID)
 		}
+		if title == "" {
+			title = "(empty session)"
+		}
+		detail := relativeAge(s.UpdatedAt) + " · " + s.Provider + "/" + s.Model
 		items = append(items, pickItem{
-			label:   shortID(s.ID),
+			label:   title,
 			detail:  detail,
 			current: s.ID == m.st.Sess.ID,
 			value:   s.ID,
 		})
 	}
-	m.picker = newListPicker("Sessions", "enter switches session", "enter resume", items, func(id string) string {
+	m.picker = newListPicker("Resume session", "enter opens · type to search", "enter open", items, func(id string) string {
 		sess, err := m.st.Core.ResolveSession(id)
 		if err != nil {
-			return "could not resume: " + err.Error()
+			return "could not open: " + err.Error()
 		}
-		if m.st.SwitchSession != nil {
-			if err := m.st.SwitchSession(sess); err != nil {
-				return "could not switch: " + err.Error()
-			}
-			// Render the switched-to session's history into the transcript, just
-			// like opening a session, so the conversation is visible.
-			if h := m.renderHistory(); h != "" {
-				m.println(entry{kind: eNotice, text: "", at: time.Now()})
-				m.println(entry{kind: eCommand, text: h, at: time.Now()})
-			}
-			return "switched to session " + shortID(sess.ID) + " (" + sess.Name + ")"
+		if err := m.switchSession(sess); err != nil {
+			return "could not switch: " + err.Error()
 		}
-		return "session " + shortID(sess.ID)
+		// Render the opened session's conversation into the transcript and
+		// commit it, so the switch is visible immediately.
+		if h := m.renderHistory(); h != "" {
+			m.println(entry{kind: eCommand, text: h, at: time.Now()})
+		}
+		return ""
 	})
+}
+
+// firstUserLine derives a session title from its first user message, used when
+// the session has no explicit name.
+func firstUserLine(core *runtime.Core, sessionID string) string {
+	msgs, err := csession.LoadMessages(core.DB, sessionID, 200)
+	if err != nil {
+		return ""
+	}
+	for _, mm := range msgs {
+		if mm.Role != "user" {
+			continue
+		}
+		s := strings.Join(strings.Fields(mm.Content), " ")
+		r := []rune(s)
+		if len(r) > 48 {
+			s = string(r[:48]) + "…"
+		}
+		return s
+	}
+	return ""
+}
+
+// relativeAge renders a timestamp as a compact age, like pi's session list:
+// now, 5m, 2h, 3d, 2w, 3mo, 1y.
+func relativeAge(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	case d < 30*24*time.Hour:
+		return fmt.Sprintf("%dw", int(d.Hours()/(24*7)))
+	case d < 365*24*time.Hour:
+		return fmt.Sprintf("%dmo", int(d.Hours()/(24*30)))
+	default:
+		return fmt.Sprintf("%dy", int(d.Hours()/(24*365)))
+	}
 }
 
 // openApprovals opens the interactive approval picker: each pending action is

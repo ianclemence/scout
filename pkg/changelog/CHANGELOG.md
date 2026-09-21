@@ -3,6 +3,22 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.4] - 2026-09-22
+
+Session switching that actually switches.
+
+- **Fixed: picking a session now opens it.** Selecting a session printed a
+  bare "· session <id>" notice instead of switching, because the switch
+  callback was bound only after the picker had opened. Callbacks are now bound
+  at startup and before any command runs, so every palette-opened picker
+  (sessions, model, thinking, approvals, sources) has a live action.
+- **The session selector reads like pi's.** It is titled "Resume session",
+  marks the current session, and each row leads with a human title (the
+  session name, or the first user message when unnamed) plus a relative age
+  (now, 5m, 2h, 3d, 2w, 3mo, 1y) and the model — instead of a raw id.
+- Selecting a session renders its prior conversation into the transcript
+  immediately, so you see the chat you just opened.
+
 ## [0.13.3] - 2026-09-22
 
 Visible search fields everywhere.
