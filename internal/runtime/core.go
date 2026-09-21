@@ -546,6 +546,22 @@ func lim(n int) int {
 	return n
 }
 
+// StoredProviders lists providers with keys in the credential store.
+func (c *Core) StoredProviders() []string {
+	rows, err := c.DB.DB.Query(`SELECT key FROM secrets WHERE key LIKE 'llm:%'`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var k string
+		rows.Scan(&k)
+		out = append(out, strings.TrimPrefix(k, "llm:"))
+	}
+	return out
+}
+
 // ---------- sessions helper ----------
 
 func (c *Core) ResolveSession(ref string) (*csession.Session, error) {

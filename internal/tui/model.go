@@ -83,8 +83,9 @@ type model struct {
 	spin      int
 	cancel    context.CancelFunc
 	sel       *selector
-	selMode   string // palette, model
+	selMode   string // palette, model, login, logout
 	palFilter string
+	auth      *authDialog
 	approval  *pendingApproval
 	lastDay   string
 	welcomed  bool
@@ -238,6 +239,18 @@ func visualRows(s string, w int) int {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.auth != nil {
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.auth = nil
+			return m, nil
+		case "enter":
+			return m, m.submitAuthDialog()
+		}
+		var cmd tea.Cmd
+		m.auth.input, cmd = m.auth.input.Update(msg)
+		return m, cmd
+	}
 	if m.approval != nil {
 		switch msg.String() {
 		case "1":
@@ -368,7 +381,26 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // runCommand executes a slash command, capturing output into entries.
+// login/logout use the native TUI flow (Pi-style dialog), never the
+// cooked-mask prompt, which cannot work in raw terminal mode.
 func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
+	name := line
+	args := ""
+	if i := strings.Index(line, " "); i >= 0 {
+		name, args = line[:i], strings.TrimSpace(line[i+1:])
+	}
+	switch name {
+	case "login":
+		m.openLoginFlow(args)
+		return m, m.flushCmds()
+	case "logout":
+		if strings.TrimSpace(args) != "" {
+			nm, cmd := m.removeStoredKey(strings.ToLower(strings.TrimSpace(args)))
+			return nm, cmd
+		}
+		m.openLogoutFlow()
+		return m, m.flushCmds()
+	}
 	var out strings.Builder
 	st := m.st
 	prev := st.Out
@@ -510,7 +542,17 @@ func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd)
 	return m, flush
 }
 
-// resolveApproval settles the inline card: true = approve.
+// removeStoredKey deletes a stored credential. Environment variables are
+// never touched — mirroring Pi's logout semantics.
+func (m *model) removeStoredKey(provider string) (tea.Model, tea.Cmd) {
+	if !validLoginProvider(provider) {
+		return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: "Unknown provider: " + provider}))
+	}
+	if _, err := m.st.Core.DB.DB.Exec(`DELETE FROM secrets WHERE key=?`, "llm:"+provider); err != nil {
+		return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: err.Error()}))
+	}
+	return m, tea.Println(renderEntryStatic(entry{kind: eNotice, text: "Removed stored key for " + provider + ". Environment variables are unchanged."}))
+}
 func (m *model) resolveApproval(approve bool) (tea.Model, tea.Cmd) {
 	a := m.approval
 	m.approval = nil

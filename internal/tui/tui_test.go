@@ -1,14 +1,18 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/ianclemence/scout/internal/config"
 	"github.com/ianclemence/scout/internal/csession"
 	"github.com/ianclemence/scout/internal/isession"
+	"github.com/ianclemence/scout/internal/runtime"
+	"github.com/ianclemence/scout/internal/store"
 )
 
 func timeNow() time.Time { return time.Now() }
@@ -152,5 +156,72 @@ func TestFooter(t *testing.T) {
 	}
 	if s := m.footerKeys(); !strings.Contains(s, "/ commands") {
 		t.Fatalf("footer keys missing: %q", s)
+	}
+}
+
+func testCore(t *testing.T) *runtime.Core {
+	t.Helper()
+	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
+	db, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	c, err := runtime.New(cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestAuthDialogFlow(t *testing.T) {
+	core := testCore(t)
+	st := &isession.ReplState{Core: core, Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}
+	m := initialModel(st)
+	m.width, m.ready = 80, true
+	// /login deepseek opens the masked dialog, not cooked output.
+	nm, _ := m.runCommand("login deepseek")
+	m = nm.(*model)
+	if m.auth == nil || m.auth.provider != "deepseek" {
+		t.Fatal("auth dialog should open")
+	}
+	if card := m.authCard(); !strings.Contains(card, "Login to DeepSeek") || !strings.Contains(card, "esc to cancel") {
+		t.Fatalf("bad dialog card: %q", card)
+	}
+	// Esc cancels without storing.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = nm.(*model)
+	if m.auth != nil {
+		t.Fatal("esc should close dialog")
+	}
+	if _, err := core.LoadSecret("llm:deepseek"); err == nil {
+		t.Fatal("cancelled login must not store")
+	}
+	// Unknown provider rejected.
+	nm, _ = m.runCommand("login nope")
+	m = nm.(*model)
+	if m.auth != nil {
+		t.Fatal("unknown provider must not open dialog")
+	}
+}
+
+func TestLogoutListsStoredOnly(t *testing.T) {
+	core := testCore(t)
+	st := &isession.ReplState{Core: core, Sess: &csession.Session{}}
+	m := initialModel(st)
+	m.width, m.ready = 80, true
+	if err := core.SaveSecret("llm:openai", "k"); err != nil {
+		t.Fatal(err)
+	}
+	nm, _ := m.runCommand("logout")
+	m = nm.(*model)
+	if m.sel == nil || m.selMode != "logout" || len(m.sel.items) != 1 {
+		t.Fatalf("logout should list stored only: %+v", m.sel)
+	}
+	nm, _ = m.removeStoredKey("openai")
+	m = nm.(*model)
+	if _, err := core.LoadSecret("llm:openai"); err == nil {
+		t.Fatal("key should be removed")
 	}
 }

@@ -24,7 +24,9 @@ func (m *model) View() string {
 	var b strings.Builder
 	b.WriteString(m.dockPreview())
 	b.WriteString("\n")
-	if m.approval != nil {
+	if m.auth != nil {
+		b.WriteString(m.authCard())
+	} else if m.approval != nil {
 		b.WriteString(m.approvalCard())
 	} else {
 		b.WriteString(m.promptBox())
@@ -285,6 +287,8 @@ func styleModel(local string) lipgloss.Style {
 func (m *model) footerKeys() string {
 	var keys string
 	switch {
+	case m.auth != nil:
+		keys = "enter submit · esc cancel"
 	case m.approval != nil:
 		keys = "1 approve · 2 reject · esc leaves pending"
 	case m.sel != nil:
@@ -356,6 +360,15 @@ func (m *model) pickSelected() (tea.Model, tea.Cmd) {
 		saveSessionModel(m.st)
 		return m, tea.Println(styleNotice.Render("Session model → " + it.value))
 	}
+	if mode == "login" {
+		d := newAuthDialog(it.value)
+		m.auth = &d
+		return m, nil
+	}
+	if mode == "logout" {
+		nm, cmd := m.removeStoredKey(it.value)
+		return nm, cmd
+	}
 	nm, cmd := m.runCommand(strings.TrimPrefix(it.value, "/"))
 	m.ta.Reset()
 	m.layoutComposer()
@@ -402,6 +415,42 @@ func (m *model) selectorView() string {
 }
 
 // ---------- approval card ----------
+
+// authCard is the Pi-style login dialog: titled box, masked key prompt.
+func (m *model) authCard() string {
+	a := m.auth
+	var b strings.Builder
+	b.WriteString(stylePromptBar.Render(strings.Repeat("─", m.width)))
+	b.WriteString("\n")
+	b.WriteString(" " + styleModalTitle.Render("Login to "+providerDisplay(a.provider)))
+	b.WriteString("\n\n")
+	b.WriteString(" " + styleAssistant.Render("Enter "+providerDisplay(a.provider)+" API key"))
+	b.WriteString("\n")
+	b.WriteString(" " + a.input.View())
+	if a.err != "" {
+		b.WriteString("\n")
+		b.WriteString(" " + styleError.Render(a.err))
+	}
+	b.WriteString("\n\n")
+	b.WriteString(" " + styleFooterHint.Render("(esc to cancel, enter to submit)"))
+	b.WriteString("\n")
+	b.WriteString(stylePromptBar.Render(strings.Repeat("─", m.width)))
+	return b.String()
+}
+
+func providerDisplay(p string) string {
+	switch p {
+	case "openai":
+		return "OpenAI"
+	case "anthropic":
+		return "Anthropic"
+	case "deepseek":
+		return "DeepSeek"
+	case "moonshot":
+		return "Moonshot"
+	}
+	return p
+}
 
 func (m *model) approvalCard() string {
 	a := m.approval

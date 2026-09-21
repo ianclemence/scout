@@ -62,6 +62,8 @@ func main() {
 		err = withCore(func(c *runtime.Core) error { return modelsCmd(c, rest) })
 	case "login":
 		err = withCore(func(c *runtime.Core) error { return loginCmd(c, rest) })
+	case "logout":
+		err = withCore(func(c *runtime.Core) error { return logoutCmd(c, rest) })
 	case "integrations", "sources":
 		err = withCore(func(c *runtime.Core) error { return integrationsCmd(c, rest) })
 	case "sessions":
@@ -517,6 +519,23 @@ func loginCmd(c *runtime.Core, args []string) error {
 		return err
 	}
 	fmt.Println("stored (encrypted).")
+	return nil
+}
+
+func logoutCmd(c *runtime.Core, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: scout logout <openai|anthropic|deepseek|moonshot>")
+	}
+	p := strings.ToLower(args[0])
+	switch p {
+	case "openai", "anthropic", "deepseek", "moonshot":
+	default:
+		return fmt.Errorf("unknown provider %q", p)
+	}
+	if _, err := c.DB.DB.Exec(`DELETE FROM secrets WHERE key=?`, "llm:"+p); err != nil {
+		return err
+	}
+	fmt.Println("Removed stored key for " + p + ". Environment variables are unchanged.")
 	return nil
 }
 
