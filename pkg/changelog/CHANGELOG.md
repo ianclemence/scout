@@ -3,6 +3,14 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.4] - 2026-09-21
+
+Activity and log-hygiene release.
+
+- The composer's live status names the activity in product language: "Thinking", "Searching work…", "Analyzing fit…", "Drafting a proposal…" — no tool names, no tool count.
+- Raw tool names/arguments and tool output no longer appear in the chat (TUI, line mode, or `scout ask`).
+- The TUI silences stderr and the std logger so dependency logs can never paint over the composer.
+
 ## [0.7.3] - 2026-09-21
 
 Transcript styling release.
