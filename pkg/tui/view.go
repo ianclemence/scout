@@ -397,11 +397,19 @@ func (m *model) openPalette(filter string) {
 	items := []selItem{}
 	for _, c := range isession.Registry() {
 		if filter == "" || strings.HasPrefix(c.Name, filter) || strings.Contains(strings.ToLower(c.Description), strings.ToLower(filter)) {
-			label := "/" + c.Name
+			// The palette shows the command name and a one-line description.
+			// The argument hint folds into the description ("<id> — …"),
+			// the way Pi's slash-command autocomplete composes it. No group
+			// or source tags: they are noise next to every row.
+			detail := c.Description
 			if c.ArgHint != "" {
-				label += " " + c.ArgHint
+				if detail != "" {
+					detail = c.ArgHint + " — " + detail
+				} else {
+					detail = c.ArgHint
+				}
 			}
-			items = append(items, selItem{label: label, detail: "[" + c.Group + "] " + c.Description, value: "/" + c.Name})
+			items = append(items, selItem{label: "/" + c.Name, detail: detail, value: "/" + c.Name})
 		}
 	}
 	m.sel = &selector{title: "Commands", items: items}
@@ -519,18 +527,56 @@ func (m *model) selectorView() string {
 		b.WriteString(stylePaletteNoMatch.Render("  No matching commands"))
 		return b.String()
 	}
+	// Primary column is as wide as the widest visible command, clamped to a
+	// readable range with a fixed gap before the description — the layout the
+	// Pi slash-command autocomplete uses.
+	col := paletteColumnWidth(items)
 	for i := off; i < end; i++ {
 		it := items[i]
-		row := fmt.Sprintf("  %-30s %s", it.label, stylePaletteDesc.Render(cellTruncate(it.detail, w-36)))
-		if i == m.sel.cur {
-			row = stylePaletteSel.Render(fmt.Sprintf("→ %-30s %s", it.label, cellTruncate(it.detail, w-36)))
+		label := cellTruncate(it.label, col-paletteColGap)
+		spacing := strings.Repeat(" ", maxInt(1, col-lipgloss.Width(label)))
+		descWidth := w - 2 - col - 2
+		desc := ""
+		if descWidth > 10 {
+			desc = cellTruncate(it.detail, descWidth)
 		}
-		b.WriteString(row + "\n")
+		if i == m.sel.cur {
+			b.WriteString(stylePaletteSel.Render("→ "+label+spacing+desc) + "\n")
+		} else {
+			b.WriteString("  " + label + stylePaletteDesc.Render(spacing+desc) + "\n")
+		}
 	}
 	if len(items) > paletteMaxRows {
 		b.WriteString(stylePaletteScroll.Render(fmt.Sprintf("  (%d/%d)", m.sel.cur+1, len(items))))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// Palette column bounds and gap, matching the slash-command autocomplete in
+// the Pi coding agent (12–32 cells, two-space gap).
+const (
+	paletteMinCol = 12
+	paletteMaxCol = 32
+	paletteColGap = 2
+)
+
+// paletteColumnWidth returns the primary-column width: the widest visible
+// command label plus the gap, clamped to [paletteMinCol, paletteMaxCol].
+func paletteColumnWidth(items []selItem) int {
+	widest := 0
+	for _, it := range items {
+		if n := lipgloss.Width(it.label); n > widest {
+			widest = n
+		}
+	}
+	widest += paletteColGap
+	if widest < paletteMinCol {
+		widest = paletteMinCol
+	}
+	if widest > paletteMaxCol {
+		widest = paletteMaxCol
+	}
+	return widest
 }
 
 // ---------- approval card ----------

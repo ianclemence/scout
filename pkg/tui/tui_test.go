@@ -66,6 +66,43 @@ func keyRunes(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
 
+// TestPaletteHasNoGroupTags locks the Pi-style command palette: each row is
+// the command name plus a description (argument hint folded in), with no
+// [Group] tag next to the command.
+func TestPaletteHasNoGroupTags(t *testing.T) {
+	m := testModel()
+	m.openPalette("")
+	if len(m.sel.items) == 0 {
+		t.Fatal("palette should list commands")
+	}
+	for _, it := range m.sel.items {
+		if !strings.HasPrefix(it.label, "/") {
+			t.Fatalf("label should be a slash command, got %q", it.label)
+		}
+		if strings.ContainsAny(it.label, "[]") {
+			t.Fatalf("label must not carry a group tag: %q", it.label)
+		}
+		for _, tag := range []string{"[Work]", "[Decide]", "[You]", "[Connect]", "[Session]"} {
+			if strings.Contains(it.detail, tag) {
+				t.Fatalf("description must not carry a group tag: %q", it.detail)
+			}
+		}
+	}
+	// The argument hint folds into the description with an em dash.
+	found := false
+	for _, it := range m.sel.items {
+		if it.label == "/analyze" {
+			found = true
+			if !strings.Contains(it.detail, "<id>") || !strings.Contains(it.detail, "—") {
+				t.Fatalf("argument hint should fold into the description: %q", it.detail)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected /analyze in the palette")
+	}
+}
+
 func TestPaletteSlashFlow(t *testing.T) {
 	m := testModel()
 	m.width, m.height, m.ready = 80, 24, true
