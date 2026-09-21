@@ -549,9 +549,28 @@ func integrationsCmd(c *runtime.Core, args []string) error {
 		}
 		cb, _ := json.Marshal(caps)
 		_, _ = c.DB.DB.Exec(`UPDATE sources SET capabilities=? WHERE name=?`, string(cb), name)
+	case "token":
+		return integrationsTokenCmd(c, args[1:])
 	default:
-		return fmt.Errorf("usage: scout integrations [list|add|test]")
+		return fmt.Errorf("usage: scout integrations [list|add|test|token]")
 	}
+	return nil
+}
+
+// integrationsTokenCmd stores an MCP access token (masked prompt, encrypted).
+func integrationsTokenCmd(c *runtime.Core, args []string) error {
+	if len(args) < 1 {
+		return fmt.Errorf("usage: scout integrations token <name>")
+	}
+	fmt.Printf("Access token for %s: ", args[0])
+	key, err := readPassword()
+	if err != nil || key == "" {
+		return fmt.Errorf("no token entered")
+	}
+	if err := c.SaveSecret("mcp:"+args[0], key); err != nil {
+		return err
+	}
+	fmt.Println("token stored (encrypted, never displayed).")
 	return nil
 }
 
