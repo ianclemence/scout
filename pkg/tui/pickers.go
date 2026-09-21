@@ -167,10 +167,7 @@ func (u *listPickerUI) view(width int) string {
 	}
 	b.WriteString("\n")
 	search := u.search
-	if search == "" {
-		search = "type to filter…"
-	}
-	b.WriteString(styleModelSearch.Render("  "+search+"▍") + "\n")
+	b.WriteString(styleModelSearch.Render("  "+search) + "\n")
 	b.WriteString("\n")
 	if len(u.filtered) == 0 {
 		b.WriteString(stylePaletteNoMatch.Render("  No matches") + "\n")

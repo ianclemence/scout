@@ -11,7 +11,6 @@ import (
 
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/isession"
-	"github.com/ianclemence/scout/pkg/runtime"
 )
 
 // Spinner cube, rotating while a turn runs.
@@ -268,15 +267,6 @@ func (m *model) welcomeCard() string {
 		block = append(block, styleWelcomeCmd.Render(c.name)+pad+styleWelcomeDesc.Render(c.desc))
 	}
 	out := center(art) + "\n" + center(tag) + "\n\n" + centerBlock(block, w)
-
-	// Name configured work sources so the startup itself answers "what MCP is
-	// configured"; the /sources picker manages them.
-	if m.st != nil && m.st.Core != nil {
-		if conns, err := m.st.Core.Connections(); err == nil && len(conns) > 0 {
-			src := styleWelcomeSources.Render("Work sources · " + connectorsSummary(conns))
-			out += "\n\n" + centerBlock([]string{src}, w)
-		}
-	}
 	return out
 }
 
@@ -300,39 +290,6 @@ func centerBlock(lines []string, w int) string {
 		out = append(out, pad+ln)
 	}
 	return strings.Join(out, "\n")
-}
-
-// connectorsSummary renders a one-line work-source digest for the welcome
-// card: name, kind, and auth state, joined for a compact footer.
-func connectorsSummary(conns []runtime.Connection) string {
-	var parts []string
-	for _, conn := range conns {
-		if !conn.Enabled {
-			continue
-		}
-		state := conn.Auth
-		switch state {
-		case "authenticated":
-			state = "ready"
-		case "open":
-			state = "ready"
-		case "token_stored":
-			state = "token stored"
-		case "unauthenticated", "token_rejected":
-			state = "needs auth"
-		default:
-			state = "configured"
-		}
-		target := conn.Endpoint
-		if conn.Kind == "mcp-stdio" {
-			target = conn.Command
-		}
-		parts = append(parts, fmt.Sprintf("%s (%s on %s)", conn.Name, state, target))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return strings.Join(parts, "  ·  ")
 }
 
 // ---------- footer ----------
@@ -418,13 +375,13 @@ func (m *model) footerKeys() string {
 	var keys string
 	switch {
 	case m.login != nil:
-		keys = "↑↓ pick · type to filter · enter select · esc cancel"
+		keys = "↑↓ pick · enter select · esc cancel"
 	case m.approval != nil:
 		keys = "1 approve · 2 reject · esc leaves pending"
 	case m.modelSel != nil:
 		keys = "↑↓ pick · enter select · ctrl+s default · esc close"
 	case m.picker != nil:
-		keys = "↑↓ pick · type to filter · enter select · esc cancel"
+		keys = "↑↓ pick · enter select · esc cancel"
 	case m.sel != nil:
 		keys = "↑↓ pick · enter select · esc close"
 	case m.working:

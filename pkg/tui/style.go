@@ -79,9 +79,8 @@ var (
 	styleWelcomeTitle = lipgloss.NewStyle().Foreground(lipgloss.Color("#efe9dc")).Bold(true)
 	styleScoutArt     = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 
-	styleWelcomeSources = lipgloss.NewStyle().Foreground(cMuted).Italic(true)
-	styleWelcomeCmd     = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
-	styleWelcomeDesc    = lipgloss.NewStyle().Foreground(cMuted)
+	styleWelcomeCmd  = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	styleWelcomeDesc = lipgloss.NewStyle().Foreground(cMuted)
 
 	// Markdown roles, mapped to Scout brand tokens (accent = identity,
 	// gold = headings/emphasis, green = code, muted = quotes/meta). This

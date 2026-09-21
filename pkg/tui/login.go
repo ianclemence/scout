@@ -180,14 +180,14 @@ func (f *loginFlowUI) view(width int) string {
 	switch f.stage {
 	case loginStageProvider:
 		b.WriteString(" " + styleModalTitle.Render("Select provider to configure:") + "\n\n")
-		b.WriteString(styleModelSearch.Render("  "+f.search+"▍") + "\n\n")
+		b.WriteString(styleModelSearch.Render("  "+f.search) + "\n\n")
 		b.WriteString(f.providerList())
-		b.WriteString("\n" + styleFooterHint.Render("  ↑↓ pick · type to filter · enter select · esc cancel"))
+		b.WriteString("\n" + styleFooterHint.Render("  ↑↓ pick · enter select · esc cancel"))
 	case loginStageLogout:
 		b.WriteString(" " + styleModalTitle.Render("Select provider to logout:") + "\n\n")
-		b.WriteString(styleModelSearch.Render("  "+f.search+"▍") + "\n\n")
+		b.WriteString(styleModelSearch.Render("  "+f.search) + "\n\n")
 		b.WriteString(f.providerList())
-		b.WriteString("\n" + styleFooterHint.Render("  ↑↓ pick · type to filter · enter remove · esc cancel"))
+		b.WriteString("\n" + styleFooterHint.Render("  ↑↓ pick · enter remove · esc cancel"))
 	case loginStageKey:
 		b.WriteString(" " + styleModalTitle.Render("Login to "+providerDisplay(f.provider)) + "\n\n")
 		b.WriteString(" " + styleAssistant.Render("Enter "+providerDisplay(f.provider)+" API key") + "\n")
