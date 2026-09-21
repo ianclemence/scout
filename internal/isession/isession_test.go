@@ -1,7 +1,9 @@
 package isession
 
 import (
+	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ianclemence/scout/internal/config"
@@ -25,10 +27,13 @@ func TestCommandRegistry(t *testing.T) {
 			t.Fatalf("command /%s incomplete", c.Name)
 		}
 	}
-	for _, want := range []string{"help", "status", "model", "approvals", "proposal", "compact", "quit"} {
+	for _, want := range []string{"help", "status", "model", "approvals", "proposal", "compact", "quit", "cv", "doctor", "skills", "tools"} {
 		if FindCommand(want) == nil {
 			t.Fatalf("missing /%s", want)
 		}
+	}
+	if FindCommand("evidence") != nil {
+		t.Fatal("/evidence should be renamed to /cv")
 	}
 	if FindCommand("nope") != nil {
 		t.Fatal("unknown command resolved")
@@ -67,5 +72,55 @@ func TestResolveOpp(t *testing.T) {
 	}
 	if _, err := st.resolveOpp("zzz"); err == nil {
 		t.Fatal("unknown ref should fail")
+	}
+}
+
+func TestDoctorCommandExecutes(t *testing.T) {
+	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
+	db, err := store.Open(filepath.Join(t.TempDir(), "d.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	core, err := runtime.New(cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	ctx := &SessionCtx{Core: core, Out: func(f string, a ...any) { fmt.Fprintf(&sb, f, a...) }}
+	if err := FindCommand("doctor").Handler(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	for _, want := range []string{"data-dir", "sqlite", "skills", "tools", "disk"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("doctor output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Run `scout doctor`") {
+		t.Fatal("doctor must execute, not redirect")
+	}
+}
+
+func TestCVCommand(t *testing.T) {
+	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
+	db, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	core, err := runtime.New(cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	ctx := &SessionCtx{Core: core, Out: func(f string, a ...any) { fmt.Fprintf(&sb, f, a...) }}
+	if err := FindCommand("cv").Handler(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sb.String(), "No evidence yet") && !strings.Contains(sb.String(), "CV") {
+		t.Fatalf("unexpected /cv output: %q", sb.String())
 	}
 }

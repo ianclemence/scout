@@ -166,7 +166,7 @@ PROPOSAL DRAFT
 Evidence: <ids>   Rate 0 hourly
 ```
 
-Inspect the evidence: `/evidence` shows what Scout may cite. If a claim isn't supported, it doesn't go in.
+Inspect what's citable: `/cv` shows your resume content and the items a proposal may cite. If a claim isn't supported, it doesn't go in.
 
 ### 9. Approve the submission
 
@@ -248,7 +248,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 |---------|-------------|
 | `/help` | All commands |
 | `/status` | Provider, model, thinking, profile, counts |
-| `/profile`, `/evidence` | Who Scout thinks you are, and what it can cite |
+| `/profile`, `/cv` | Who Scout thinks you are; resume content and citable items |
 | `/opportunities [query]`, `/opportunity <id\|#>`, `/discover` | Pipeline intake |
 | `/analyze <id>`, `/proposal <id>` | Fit reasoning and drafting |
 | `/approvals [approve\|reject <id>]` | Decide consequential actions |

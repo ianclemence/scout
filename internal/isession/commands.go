@@ -4,6 +4,8 @@ package isession
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -40,7 +42,7 @@ func Registry() []*Command {
 		{Name: "help", Description: "Show commands", Handler: cmdHelp},
 		{Name: "status", Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
 		{Name: "profile", Description: "Show profile summary", Handler: cmdProfile},
-		{Name: "evidence", Description: "List citable profile evidence", Handler: cmdEvidence},
+		{Name: "cv", Description: "Show CV/resume and citable items", Handler: cmdCV},
 		{Name: "models", Description: "Show model catalog (registry, cached + discovered)", Handler: cmdModels},
 		{Name: "model", Description: "Switch conversation model: /model [provider/model]", ArgHint: "[provider/model]", Handler: cmdModel},
 		{Name: "thinking", Description: "Set reasoning level: /thinking <off|low|medium|high|max>", ArgHint: "<level>", Handler: cmdThinking},
@@ -109,6 +111,18 @@ func cmdStatus(ctx *SessionCtx, args string) error {
 }
 
 func cmdProfile(ctx *SessionCtx, args string) error {
+	if f := strings.Fields(args); len(f) >= 2 && f[0] == "import" {
+		raw, err := os.ReadFile(f[1])
+		if err != nil {
+			return err
+		}
+		p, ev, err := profile.ImportDocument(ctx.Core.DB, filepath.Base(f[1]), raw)
+		if err != nil {
+			return err
+		}
+		ctx.Printf("Imported %s: %d skills, %d evidence items. Review with /profile and /cv.\n", p.DisplayName, len(p.Skills), len(ev))
+		return nil
+	}
 	p, err := ctx.Core.Profile()
 	if err != nil {
 		return err
@@ -127,11 +141,11 @@ func cmdProfile(ctx *SessionCtx, args string) error {
 		}
 		ctx.Printf("%s:%s", e.Kind, e.Reference)
 	}
-	ctx.Printf(")\nEdit via: scout profile subcommands (see scout profile --help).\n")
+	ctx.Printf(")\nImport or update from a file: /profile import <path>.\n")
 	return nil
 }
 
-func cmdEvidence(ctx *SessionCtx, args string) error {
+func cmdCV(ctx *SessionCtx, args string) error {
 	ev, err := ctx.Core.Evidence(20)
 	if err != nil {
 		return err
@@ -140,7 +154,7 @@ func cmdEvidence(ctx *SessionCtx, args string) error {
 		ctx.Printf("No evidence yet. Import a CV: scout profile import <file>\n")
 		return nil
 	}
-	ctx.Printf("EVIDENCE (%d citable items):\n", len(ev))
+	ctx.Printf("CV — resume content and citable items (%d):\n", len(ev))
 	for _, e := range ev {
 		ctx.Printf("  %-12s %-20s %s\n", e.Kind, e.Reference, truncate80(e.Content))
 	}
@@ -455,7 +469,19 @@ func cmdSessions(ctx *SessionCtx, args string) error {
 func cmdClear(ctx *SessionCtx, args string) error { return errClearScreen }
 
 func cmdDoctor(ctx *SessionCtx, args string) error {
-	ctx.Printf("Run `scout doctor` for full diagnostics (provider keys, Ollama, DB, disk).\n")
+	ctx.Printf("Scout doctor:\n")
+	allOK := true
+	for _, ch := range ctx.Core.Doctor(ctxBg()) {
+		mark := "OK"
+		if !ch.OK {
+			mark = "!!"
+			allOK = false
+		}
+		ctx.Printf("  [%s] %s %s\n", mark, ch.Name, ch.Detail)
+	}
+	if !allOK {
+		ctx.Printf("Fix flagged items, then re-run /doctor.\n")
+	}
 	return nil
 }
 
