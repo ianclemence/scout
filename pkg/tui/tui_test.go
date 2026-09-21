@@ -355,3 +355,18 @@ func TestLogoutListsStoredOnly(t *testing.T) {
 		t.Fatal("key should be removed")
 	}
 }
+
+// TestAccountProviderSelectsOAuth verifies that choosing an account provider
+// moves the login flow to the OAuth stage (not the API-key dialog).
+func TestAccountProviderSelectsOAuth(t *testing.T) {
+	core := testCore(t)
+	f := newLoginFlow()
+	f.openProviderStage(core, "account", "")
+	if len(f.filtered) == 0 {
+		t.Fatal("account stage should list providers")
+	}
+	res := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	if res.moveTo == nil || *res.moveTo != loginStageOAuth || res.provider != "anthropic" {
+		t.Fatalf("account provider should select OAuth, got %+v", res)
+	}
+}
