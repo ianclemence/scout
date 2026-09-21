@@ -238,6 +238,25 @@ scout update              # pull + rebuild + reinstall + restart service
 scout backup ~/scout-backup.db   # profile, pipeline, and history (encrypted secrets included — keep private)
 ```
 
+### 12. Start over
+
+`scout reset` wipes Scout's saved data and starts it fresh — every session and
+message, your profile and CV evidence, stored opportunities, evaluations,
+proposals, applications, messages, learned preferences, and history. It is
+irreversible.
+
+```bash
+scout reset            # show exactly what would be deleted, delete nothing
+scout reset --yes      # wipe the above; keep provider API keys and connectors
+scout reset --all --yes  # also wipe stored keys, connector sign-in, the local
+                         # master key, and the workspace overlay (SCOUT.md, skills)
+```
+
+By default your provider API keys and configured connectors are **kept**, so a
+reset does not force a re-login. `--all` removes those too. Reset requires
+explicit confirmation (`--yes`); without it, Scout prints the destruction list
+and exits. Back up first with `scout backup <file>` if anything is worth keeping.
+
 ---
 
 ## Updating
@@ -279,6 +298,7 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `scout eval` | Run the evaluation suite (regression gate) |
 | `scout doctor` | Diagnostics (DB, providers, Ollama, disk, version, service) |
 | `scout backup <file>` / `scout restore <file>` | Data backup and restore |
+| `scout reset [--all] --yes` | Wipe all saved data and start fresh |
 | `scout update [--dry-run] [--force]` | Self-update |
 | `scout mcp [stdio\|serve]` | MCP server for other agents |
 | `scout version` | Version |

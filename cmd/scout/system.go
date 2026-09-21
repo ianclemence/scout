@@ -37,6 +37,49 @@ func doctorCmd(c *runtime.Core) error {
 	return nil
 }
 
+// resetCmd wipes Scout's saved data and starts it fresh. It is irreversible,
+// so it requires --yes; without it, it prints exactly what would be destroyed.
+// Provider API keys and connector configuration are preserved unless --all is
+// given, so a reset does not force a re-login.
+func resetCmd(c *runtime.Core, args []string) error {
+	all, yes := false, false
+	for _, a := range args {
+		switch a {
+		case "--all":
+			all = true
+		case "--yes", "-y":
+			yes = true
+		}
+	}
+	scope := runtime.ResetScope{IncludeCredentials: all}
+	if !yes {
+		fmt.Println("scout reset will permanently delete:")
+		fmt.Println("  - profile and evidence (your CV data)")
+		fmt.Println("  - opportunities, evaluations, proposals, applications, messages")
+		fmt.Println("  - all sessions and their message history")
+		fmt.Println("  - learned preferences and feedback")
+		fmt.Println("  - trajectories, tool audit, and cached models")
+		if all {
+			fmt.Println("  - stored provider keys and connector sign-in (--all)")
+			fmt.Println("  - the local master key and the workspace overlay (SCOUT.md, skills)")
+		} else {
+			fmt.Println("\nKept: provider API keys and configured connectors (use --all to wipe them too).")
+		}
+		return fmt.Errorf("nothing was deleted — re-run with --yes to confirm")
+	}
+	rep, err := c.Reset(scope)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Scout reset: %s.\n", rep.Summary())
+	if all {
+		fmt.Println("Stored credentials were cleared; run `scout login <provider>` and re-add connectors.")
+	} else {
+		fmt.Println("Provider keys and connectors were kept. Starting fresh.")
+	}
+	return nil
+}
+
 func backupCmd(c *runtime.Core, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("usage: scout backup <file>")

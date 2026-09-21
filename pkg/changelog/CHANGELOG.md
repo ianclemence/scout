@@ -3,6 +3,22 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.7] - 2026-09-22
+
+Fresh start.
+
+- **`scout reset`** wipes Scout's saved data and starts it fresh: every session
+  and message, profile and CV evidence, opportunities, evaluations, proposals,
+  applications, messages, learned preferences, trajectories, and history. It is
+  irreversible and requires `--yes`; without it, Scout prints exactly what would
+  be destroyed and deletes nothing.
+- **Credentials are kept by default.** A normal reset preserves your provider
+  API keys and configured connectors, so it does not force a re-login.
+  `scout reset --all --yes` also clears stored keys, connector sign-in, the
+  local master key, and the workspace overlay.
+- The database is vacuumed after a reset, so a wiped install does not keep its
+  old size.
+
 ## [0.13.6] - 2026-09-22
 
 Evaluation substrate and an external Jev evaluation loop.

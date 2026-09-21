@@ -89,6 +89,8 @@ func main() {
 		err = updateCmd(rest)
 	case "restore":
 		err = restoreCmd(rest)
+	case "reset":
+		err = withCore(func(c *runtime.Core) error { return resetCmd(c, rest) })
 	case "mcp":
 		err = withCore(func(c *runtime.Core) error { return mcpCmd(c, rest) })
 	case "version", "--version", "-v":
@@ -142,6 +144,8 @@ func usage() {
                          --channel dev builds the local checkout
   scout changelog            release notes for this install
   scout restore <file>         restore database backup
+  scout reset [--all] --yes    wipe all saved data and start fresh; --all also
+                               clears stored keys and connectors
   scout mcp [stdio|serve]      Scout MCP server for other MCP clients
   scout version`)
 }
