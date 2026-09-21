@@ -3,6 +3,28 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.9] - 2026-09-21
+
+Command-surface trim.
+
+The interactive session had grown to 35 commands, many of which described
+Scout's internals or duplicated others. The session now keeps the core loop
+and the CLI keeps the rest.
+
+- **Removed:** `/providers`, `/scoped-models`, `/skills`, `/tools`, `/copy`,
+  `/keys`, `/session`, `/pipeline`, `/cv`, `/clear`, `/changelog` (still
+  `scout changelog`), `/inbox`.
+- **Merged:** `/cv` → `/profile evidence`; `/pipeline` → `/applications`
+  (counts printed above the list).
+- **`/discover` is now real:** it searches every connected source, stores new
+  opportunities (deduplicated by source identity), and reports per-source
+  failures instead of only counting local rows.
+- **Scoped models and Ctrl+P cycling are gone.** `/model` is the single model
+  surface (searchable, Ctrl+S sets the default); the scope state and selector
+  were removed.
+- The remaining 23 commands are grouped Work / Decide / You / Connect /
+  Session in `/help` and the palette.
+
 ## [0.7.8] - 2026-09-21
 
 Account sign-in and terminal-polish release.

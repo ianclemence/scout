@@ -27,13 +27,16 @@ func TestCommandRegistry(t *testing.T) {
 			t.Fatalf("command /%s incomplete", c.Name)
 		}
 	}
-	for _, want := range []string{"help", "status", "model", "approvals", "proposal", "compact", "quit", "cv", "doctor", "skills", "tools"} {
+	for _, want := range []string{"help", "status", "model", "approvals", "proposal", "compact", "quit", "profile", "doctor", "opportunities", "sources", "login", "thinking", "sessions", "new", "discover", "applications", "feedback", "export"} {
 		if FindCommand(want) == nil {
 			t.Fatalf("missing /%s", want)
 		}
 	}
-	if FindCommand("evidence") != nil {
-		t.Fatal("/evidence should be renamed to /cv")
+	// Commands deliberately removed from the interactive surface.
+	for _, gone := range []string{"providers", "scoped-models", "skills", "tools", "copy", "keys", "session", "pipeline", "cv", "clear", "changelog", "inbox"} {
+		if FindCommand(gone) != nil {
+			t.Fatalf("/%s should be removed", gone)
+		}
 	}
 	if FindCommand("nope") != nil {
 		t.Fatal("unknown command resolved")
@@ -103,7 +106,7 @@ func TestDoctorCommandExecutes(t *testing.T) {
 	}
 }
 
-func TestCVCommand(t *testing.T) {
+func TestProfileEvidence(t *testing.T) {
 	cfg := config.Default()
 	cfg.DataDir = t.TempDir()
 	db, err := store.Open(filepath.Join(t.TempDir(), "c.db"))
@@ -117,10 +120,10 @@ func TestCVCommand(t *testing.T) {
 	}
 	var sb strings.Builder
 	ctx := &SessionCtx{Core: core, Out: func(f string, a ...any) { fmt.Fprintf(&sb, f, a...) }}
-	if err := FindCommand("cv").Handler(ctx, ""); err != nil {
+	if err := FindCommand("profile").Handler(ctx, "evidence"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(sb.String(), "No evidence yet") && !strings.Contains(sb.String(), "CV") {
-		t.Fatalf("unexpected /cv output: %q", sb.String())
+	if !strings.Contains(sb.String(), "No resume content") {
+		t.Fatalf("unexpected /profile evidence output: %q", sb.String())
 	}
 }

@@ -3,6 +3,7 @@
 package isession
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,13 +11,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ianclemence/scout/pkg/changelog"
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/profile"
 	"github.com/ianclemence/scout/pkg/runtime"
+	"github.com/ianclemence/scout/pkg/sources"
 )
 
 // Command is a slash command with Scout-specific utility.
@@ -58,12 +59,6 @@ type SessionCtx struct {
 	Width int
 	// SwitchSession, when set (TUI), switches the live session in place.
 	SwitchSession func(s *csession.Session) error
-	// ScopedModels returns the live scoped-model state.
-	ScopedModels func() ScopedModels
-	// SetScopedModels replaces the scoped-model state (session + persisted).
-	SetScopedModels func(ids []string) error
-	// OpenScopedModels, when set (TUI), opens the interactive selector.
-	OpenScopedModels func()
 	// OpenModelSelector, when set (TUI), opens the interactive model selector.
 	OpenModelSelector func(search string)
 	// OpenThinking, when set (TUI), opens the interactive reasoning-level
@@ -85,44 +80,32 @@ func (s *SessionCtx) Printf(format string, a ...any) { s.Out(format, a...) }
 func Registry() []*Command {
 	cmds := []*Command{
 		// Work — find, evaluate, draft, track.
-		{Name: "discover", Group: GroupWork, Description: "Run discovery across connected sources (read-only)", Handler: cmdDiscover},
+		{Name: "discover", Group: GroupWork, Description: "Search connected sources and store new work", Handler: cmdDiscover},
 		{Name: "opportunities", Group: GroupWork, Description: "List stored opportunities", ArgHint: "<query>", Aliases: []string{"opps"}, Handler: cmdOpps},
 		{Name: "opportunity", Group: GroupWork, Description: "Posting, evaluation, and proposal", ArgHint: "<id>", Handler: cmdOpp},
 		{Name: "analyze", Group: GroupWork, Description: "Structured fit for an opportunity", ArgHint: "<id>", Handler: cmdAnalyze},
 		{Name: "proposal", Group: GroupWork, Description: "Draft a grounded proposal (never sends)", ArgHint: "<id>", Handler: cmdProposal},
-		{Name: "applications", Group: GroupWork, Description: "List applications by stage", Aliases: []string{"apps"}, Handler: cmdApplications},
-		{Name: "pipeline", Group: GroupWork, Description: "Application counts by stage", Handler: cmdPipeline},
-		{Name: "inbox", Group: GroupWork, Description: "Messages needing attention", Handler: cmdInbox},
+		{Name: "applications", Group: GroupWork, Description: "Applications and pipeline counts", Aliases: []string{"apps"}, Handler: cmdApplications},
 		{Name: "feedback", Group: GroupWork, Description: "Record an explicit preference signal", ArgHint: "<id> <signal>", Handler: cmdFeedback},
 		// Decide — the trust boundary.
 		{Name: "approvals", Group: GroupDecide, Description: "Review and decide pending actions", Handler: cmdApprovals},
 		// You — the source of truth.
-		{Name: "profile", Group: GroupYou, Description: "Who Scout thinks you are", Handler: cmdProfile},
-		{Name: "cv", Group: GroupYou, Description: "Resume content and citable evidence", Handler: cmdCV},
+		{Name: "profile", Group: GroupYou, Description: "Who Scout thinks you are; `/profile evidence` for the CV", ArgHint: "<query|import <path>|evidence>", Handler: cmdProfile},
 		// Connect — sources, providers, models.
 		{Name: "sources", Group: GroupConnect, Description: "Work sources & MCP connectors", Aliases: []string{"integrations"}, Handler: cmdSources},
-		{Name: "providers", Group: GroupConnect, Description: "Provider availability and model counts", Handler: cmdProviders},
 		{Name: "login", Group: GroupConnect, Description: "Connect a provider", ArgHint: "<provider>", Handler: cmdLogin},
 		{Name: "logout", Group: GroupConnect, Description: "Remove a stored provider credential", Handler: cmdLogout},
 		{Name: "model", Group: GroupConnect, Description: "Select conversation model", ArgHint: "<provider/model>", Handler: cmdModel},
-		{Name: "scoped-models", Group: GroupConnect, Description: "Choose the models Ctrl+P cycles", Handler: cmdScopedModels},
 		{Name: "thinking", Group: GroupConnect, Description: "Set reasoning level", ArgHint: "<level>", Handler: cmdThinking},
-		{Name: "skills", Group: GroupConnect, Description: "List agent skills (workflows)", Handler: cmdSkills},
-		{Name: "tools", Group: GroupConnect, Description: "List agent tools and permission classes", Handler: cmdTools},
 		// Session — lifecycle and transcript.
 		{Name: "help", Group: GroupSession, Description: "Show commands and keys", Handler: cmdHelp},
-		{Name: "keys", Group: GroupSession, Description: "Keyboard shortcuts", Handler: cmdKeys},
 		{Name: "status", Group: GroupSession, Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
-		{Name: "session", Group: GroupSession, Description: "Current session info", Handler: cmdSession},
 		{Name: "sessions", Group: GroupSession, Description: "List or switch sessions", Aliases: []string{"resume"}, Handler: cmdSessions},
 		{Name: "new", Group: GroupSession, Description: "Start a new session", Handler: cmdNew},
 		{Name: "name", Group: GroupSession, Description: "Rename the session", ArgHint: "<name>", Handler: cmdName},
 		{Name: "export", Group: GroupSession, Description: "Export the transcript to markdown", ArgHint: "<path>", Handler: cmdExport},
-		{Name: "copy", Group: GroupSession, Description: "Copy the last assistant message", Handler: cmdCopy},
-		{Name: "clear", Group: GroupSession, Description: "Clear the screen (keeps history)", Handler: cmdClear},
 		{Name: "compact", Group: GroupSession, Description: "Summarize and trim session context", Handler: cmdCompact},
 		{Name: "doctor", Group: GroupSession, Description: "Diagnostics (DB, providers, Ollama, disk)", Handler: cmdDoctor},
-		{Name: "changelog", Group: GroupSession, Description: "Show release notes", Handler: cmdChangelog},
 		{Name: "quit", Group: GroupSession, Description: "Exit Scout", Aliases: []string{"exit"}, Handler: cmdQuit},
 	}
 	// Stable order: canonical group order, then command order within a group.
@@ -166,7 +149,7 @@ func cmdHelp(ctx *SessionCtx, args string) error {
 		ctx.Printf("  /%-14s %s\n", c.Name, c.Description)
 	}
 	ctx.Printf("\nAnything else is a request to the agent. Ctrl-C interrupts · Ctrl-D exits.\n")
-	ctx.Printf("Keys: Cmd palette as you type · Ctrl+L model · Ctrl+P cycle models · Esc interrupt/quit.\n")
+	ctx.Printf("Keys: type / for the command palette · Ctrl+L model · Esc interrupt/quit.\n")
 	return nil
 }
 
@@ -188,17 +171,21 @@ func cmdStatus(ctx *SessionCtx, args string) error {
 }
 
 func cmdProfile(ctx *SessionCtx, args string) error {
-	if f := strings.Fields(args); len(f) >= 2 && f[0] == "import" {
-		raw, err := os.ReadFile(f[1])
+	fields := strings.Fields(args)
+	if len(fields) >= 2 && fields[0] == "import" {
+		raw, err := os.ReadFile(fields[1])
 		if err != nil {
 			return err
 		}
-		p, _, err := profile.ImportDocument(ctx.Core.DB, filepath.Base(f[1]), raw)
+		p, _, err := profile.ImportDocument(ctx.Core.DB, filepath.Base(fields[1]), raw)
 		if err != nil {
 			return err
 		}
-		ctx.Printf("Imported CV for %s — %d skills detected, resume stored. Review with /profile and /cv.\n", p.DisplayName, len(p.Skills))
+		ctx.Printf("Imported CV for %s — %d skills detected, resume stored. Review with /profile and /profile evidence.\n", p.DisplayName, len(p.Skills))
 		return nil
+	}
+	if len(fields) >= 1 && (fields[0] == "evidence" || fields[0] == "cv") {
+		return profileEvidence(ctx)
 	}
 	p, err := ctx.Core.Profile()
 	if err != nil {
@@ -218,11 +205,12 @@ func cmdProfile(ctx *SessionCtx, args string) error {
 		}
 		ctx.Printf("%s:%s", e.Kind, e.Reference)
 	}
-	ctx.Printf(")\nImport or update from a file: /profile import <path>.\n")
+	ctx.Printf(")\nImport or update from a file: /profile import <path>. Full evidence: /profile evidence.\n")
 	return nil
 }
 
-func cmdCV(ctx *SessionCtx, args string) error {
+// profileEvidence lists the resume content and citable items (the former /cv).
+func profileEvidence(ctx *SessionCtx) error {
 	ev, err := ctx.Core.Evidence(20)
 	if err != nil {
 		return err
@@ -231,7 +219,7 @@ func cmdCV(ctx *SessionCtx, args string) error {
 		ctx.Printf("No resume content yet. Import a CV: /profile import <file>\n")
 		return nil
 	}
-	ctx.Printf("CV — resume content and supporting items (%d):\n", len(ev))
+	ctx.Printf("Resume content and supporting items (%d):\n", len(ev))
 	for _, e := range ev {
 		ctx.Printf("  %-12s %-20s %s\n", e.Kind, e.Reference, truncate80(e.Content))
 	}
@@ -301,11 +289,24 @@ func cmdOpp(ctx *SessionCtx, args string) error {
 }
 
 func cmdDiscover(ctx *SessionCtx, args string) error {
-	s, err := ctx.Core.RunDiscovery(true)
+	ctx.Printf("Searching connected sources…\n")
+	runCtx, cancel := context.WithTimeout(ctxBg(), 45*time.Second)
+	defer cancel()
+	res, err := ctx.Core.DiscoverSources(runCtx, sources.SearchFilter{Query: strings.TrimSpace(args), Limit: 20})
 	if err != nil {
 		return err
 	}
-	ctx.Printf("Discovery: %d stored, %d pass filters. (External discovery runs through integrations; see /sources.)\n", s.Total, s.Candidates)
+	if len(res.Sources) == 0 {
+		ctx.Printf("No connected sources yet. Add one: /sources add Upwork https://mcp.upwork.com/mcp\n")
+		return nil
+	}
+	ctx.Printf("Searched %d source(s): %d found, %d stored.\n", len(res.Sources), res.Found, res.Stored)
+	for _, w := range res.Warnings {
+		ctx.Printf("  ! %s\n", w)
+	}
+	if res.Stored > 0 {
+		ctx.Printf("Review them with /opportunities.\n")
+	}
 	return nil
 }
 
@@ -376,43 +377,26 @@ func cmdApprovals(ctx *SessionCtx, args string) error {
 }
 
 func cmdApplications(ctx *SessionCtx, args string) error {
+	m, _ := ctx.Core.Pipeline()
 	apps, err := ctx.Core.ListApplications(30)
 	if err != nil {
 		return err
 	}
-	if len(apps) == 0 {
+	if len(apps) == 0 && len(m) == 0 {
 		ctx.Printf("No applications yet.\n")
 		return nil
+	}
+	if len(m) > 0 {
+		ctx.Printf("Pipeline:\n")
+		for s, n := range m {
+			ctx.Printf("  %-12s %d\n", s, n)
+		}
+		ctx.Printf("\n")
 	}
 	w := wOf(ctx)
 	for _, a := range apps {
 		ctx.Printf("%s\n", cell(padRight(shortID(a.OpportunityID), 14)+padRight(a.Stage, 12)+a.Source, w))
 	}
-	return nil
-}
-
-func cmdPipeline(ctx *SessionCtx, args string) error {
-	m, err := ctx.Core.Pipeline()
-	if err != nil {
-		return err
-	}
-	if len(m) == 0 {
-		ctx.Printf("Pipeline empty.\n")
-		return nil
-	}
-	for s, n := range m {
-		ctx.Printf("  %-12s %d\n", s, n)
-	}
-	return nil
-}
-
-func cmdInbox(ctx *SessionCtx, args string) error {
-	tool := ctx.Core.FindTool("list_messages")
-	out, err := tool.Handler(ctxBg(), map[string]any{})
-	if err != nil {
-		return err
-	}
-	ctx.Printf("%s\n", out)
 	return nil
 }
 
@@ -667,70 +651,6 @@ func cmdSourcesToken(ctx *SessionCtx, name string) error {
 	return nil
 }
 
-func cmdSkills(ctx *SessionCtx, args string) error {
-	reg, err := ctx.Core.SkillRegistry()
-	if err != nil {
-		return err
-	}
-	if q := strings.TrimSpace(args); q != "" {
-		for _, s := range reg.Select(q, 5) {
-			ctx.Printf("  %-28s %s\n", s.Name, firstLine(s.Body))
-		}
-		return nil
-	}
-	for _, s := range reg.List() {
-		ctx.Printf("%s\n", cell(padRight(s.Name, 28)+strings.Join(s.Triggers, ", "), wOf(ctx)))
-	}
-	return nil
-}
-
-func cmdTools(ctx *SessionCtx, args string) error {
-	tools := ctx.Core.Tools()
-	byPerm := map[string][]*runtime.Tool{}
-	var order []string
-	for _, t := range tools {
-		p := string(t.Permission)
-		if _, ok := byPerm[p]; !ok {
-			order = append(order, p)
-		}
-		byPerm[p] = append(byPerm[p], t)
-	}
-	// Least to most consequential, so the gate order is obvious at a glance.
-	rank := map[string]int{"read": 0, "analyze": 1, "draft": 2, "mutate_local": 3, "external_action": 4, "financial": 5}
-	sort.SliceStable(order, func(i, j int) bool { return rank[order[i]] < rank[order[j]] })
-	ctx.Printf("Scout has %d tools, grouped by permission.\n", len(tools))
-	for _, p := range order {
-		ctx.Printf("\n**%s**\n", p)
-		for _, t := range byPerm[p] {
-			ctx.Printf("- `%s` — %s\n", t.Name, t.Description)
-		}
-	}
-	return nil
-}
-
-func cmdProviders(ctx *SessionCtx, args string) error {
-	w := widthOf(ctx)
-	ctx.Printf("%s %s %s %s\n", padRight("Provider", 16), padRight("Cfg", 4), padRight("Models", 7), "Detail / roles")
-	for _, p := range ctx.Core.ProviderStatus(ctxBg()) {
-		mark := "✗"
-		if p.Configured {
-			mark = "✓"
-		}
-		roles := ""
-		if len(p.Roles) > 0 {
-			roles = " [" + strings.Join(p.Roles, ",") + "]"
-		}
-		ctx.Printf("%s\n", cell(padRight(p.Provider, 16)+" "+mark+"  "+padRight(itoa(p.Models), 7)+p.Detail+roles, w))
-	}
-	return nil
-}
-
-func cmdSession(ctx *SessionCtx, args string) error {
-	msgs, _ := ctx.Core.SessionMessageCount(ctx.Session.ID)
-	ctx.Printf("session %s (%s) · %s/%s · %d messages\n", ctx.Session.ID[:12], ctx.Session.Name, ctx.Session.Provider, ctx.Session.Model, msgs)
-	return nil
-}
-
 func cmdSessions(ctx *SessionCtx, args string) error {
 	// With an argument, this is "resume": resolve and switch in place.
 	if ref := firstField(args); ref != "" {
@@ -755,8 +675,6 @@ func cmdSessions(ctx *SessionCtx, args string) error {
 	return nil
 }
 
-func cmdClear(ctx *SessionCtx, args string) error { return errClearScreen }
-
 func cmdDoctor(ctx *SessionCtx, args string) error {
 	ctx.Printf("Scout doctor:\n")
 	allOK := true
@@ -774,48 +692,11 @@ func cmdDoctor(ctx *SessionCtx, args string) error {
 	return nil
 }
 
-// cmdChangelog prints the release notes. With no argument it shows entries
-// newer than the last-seen version (or the whole changelog if none); with a
-// version argument it shows that release.
-func cmdChangelog(ctx *SessionCtx, args string) error {
-	if v := firstField(args); v != "" {
-		if body := changelog.ForVersion(v); body != "" {
-			ctx.Printf("%s\n", body)
-			return nil
-		}
-		ctx.Printf("No release notes for %s.\n", v)
-		return nil
-	}
-	entries := changelog.NewSince(ctx.Core.Cfg.DataDir, Version())
-	if len(entries) == 0 {
-		ctx.Printf("%s\n", changelog.Raw())
-		return nil
-	}
-	for _, e := range entries {
-		ctx.Printf("What's new in %s\n\n%s\n\n", e.Version, e.Body)
-	}
-	return nil
-}
-
 func cmdQuit(ctx *SessionCtx, args string) error { return errQuit }
 
 // helpers shared with session.go
 // wOf is widthOf for terse call sites.
 func wOf(ctx *SessionCtx) int { return widthOf(ctx) }
-
-func itoa(n int) string {
-	if n == 0 {
-		return "–"
-	}
-	return fmt.Sprintf("%d", n)
-}
-
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
-}
 
 // widthOf returns the render width, or 0 when unknown (no wrapping).
 func widthOf(ctx *SessionCtx) int {

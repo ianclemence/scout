@@ -148,6 +148,76 @@ func (c *Core) AddOpportunity(title, description, skills string) (*domain.Opport
 	return o, nil
 }
 
+// DiscoveryResult summarizes a source discovery run.
+type DiscoveryResult struct {
+	Found    int
+	Stored   int
+	Sources  []string
+	Warnings []string
+}
+
+// DiscoverSources searches every connected external source, upserts the results
+// into the local store (deduplicated by source identity), and isolates
+// per-source failures. It is the real, source-backed discovery used by
+// `/discover`; RunDiscovery remains the local filter-only summary.
+func (c *Core) DiscoverSources(ctx context.Context, f sources.SearchFilter) (DiscoveryResult, error) {
+	reg := c.SourceRegistry()
+	var res DiscoveryResult
+	seen := map[string]bool{}
+	for _, s := range reg.All() {
+		if s.ID() == "local" {
+			continue
+		}
+		res.Sources = append(res.Sources, s.Name())
+		opps, err := s.Search(ctx, f)
+		if err != nil {
+			res.Warnings = append(res.Warnings, s.Name()+": "+err.Error())
+			continue
+		}
+		for _, o := range opps {
+			if seen[o.Fingerprint] {
+				continue
+			}
+			seen[o.Fingerprint] = true
+			res.Found++
+			if err := c.upsertOpportunity(&o); err != nil {
+				res.Warnings = append(res.Warnings, "store "+o.Source+": "+err.Error())
+				continue
+			}
+			res.Stored++
+		}
+	}
+	return res, nil
+}
+
+// upsertOpportunity inserts or refreshes a discovered opportunity, keyed by
+// its stable (source, source_opp_id) identity so re-running discovery does not
+// duplicate listings.
+func (c *Core) upsertOpportunity(o *domain.Opportunity) error {
+	id := o.ID
+	if id == "" {
+		id = newID("opp")
+	}
+	fp := o.Fingerprint
+	if fp == "" {
+		fp = imat.Fingerprint(o.Source, o.SourceOppID, o.Title, o.Description)
+	}
+	status := o.Status
+	if status == "" {
+		status = "discovered"
+	}
+	_, err := c.DB.DB.Exec(`
+INSERT INTO opportunities(id,source,source_opp_id,canonical_url,title,description,skills,category,budget_min,budget_max,budget_type,fingerprint,raw_snapshot,status,created_at,updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(source, source_opp_id) DO UPDATE SET
+  canonical_url=excluded.canonical_url, title=excluded.title, description=excluded.description,
+  skills=excluded.skills, category=excluded.category, budget_min=excluded.budget_min,
+  budget_max=excluded.budget_max, budget_type=excluded.budget_type, updated_at=excluded.updated_at`,
+		id, o.Source, o.SourceOppID, o.CanonicalURL, o.Title, o.Description, strings.Join(o.Skills, ","),
+		o.Category, o.BudgetMin, o.BudgetMax, o.BudgetType, fp, o.RawSnapshot, status, now(), now())
+	return err
+}
+
 // Analyze runs deterministic filter + heuristic evaluation + optional LLM enrichment.
 func (c *Core) Analyze(ctx context.Context, id string, eng *agent.Engine) (*domain.MatchEvaluation, FilterInfo, error) {
 	o, err := c.GetOpportunityFull(id)

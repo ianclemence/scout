@@ -36,10 +36,7 @@ func (m *model) View() string {
 		b.WriteString(m.promptBox())
 	}
 	b.WriteString("\n")
-	if m.scopedSel != nil {
-		b.WriteString(m.scopedSel.view(m.width))
-		b.WriteString("\n")
-	} else if m.modelSel != nil {
+	if m.modelSel != nil {
 		b.WriteString(m.modelSel.view(m.width))
 		b.WriteString("\n")
 	} else if m.picker != nil {
@@ -395,10 +392,8 @@ func (m *model) footerKeys() string {
 		keys = "↑↓ pick · type to filter · enter select · esc cancel"
 	case m.approval != nil:
 		keys = "1 approve · 2 reject · esc leaves pending"
-	case m.scopedSel != nil:
-		keys = "↑↓ move · enter toggle · ctrl+a/x all/clear · ctrl+p provider · alt+↑↓ reorder · ctrl+s save · esc close"
 	case m.modelSel != nil:
-		keys = "↑↓ pick · tab scope · enter select · ctrl+s default · esc close"
+		keys = "↑↓ pick · enter select · ctrl+s default · esc close"
 	case m.picker != nil:
 		keys = "↑↓ pick · type to filter · enter select · esc cancel"
 	case m.sel != nil:
@@ -471,12 +466,7 @@ func (m *model) openModelSelector(search string) {
 	if r, ok := m.st.Core.Cfg.Models[config.RoleConversation]; ok && r.Provider != "" {
 		defProv, defModel = r.Provider, r.Model
 	}
-	m.modelSel = newModelPickerUI(m.st.Core, m.st.ScopedModels, m.st.Sess.Provider, m.st.Sess.Model, defProv, defModel, search)
-}
-
-// openScopedModels opens the enable/disable + reorder selector.
-func (m *model) openScopedModels() {
-	m.scopedSel = newScopedModelsUI(m.st.Core, m.st.ScopedModels, m.st.Sess.Provider, m.st.Sess.Model)
+	m.modelSel = newModelPickerUI(m.st.Core, m.st.Sess.Provider, m.st.Sess.Model, defProv, defModel, search)
 }
 
 // applyModelSelection switches the session model (and optionally records it as
@@ -494,31 +484,7 @@ func (m *model) applyModelSelection(prov, model string, asDefault bool) (tea.Mod
 	return m, tea.Println(styleNotice.Render("Session model → " + prov + "/" + model))
 }
 
-// cycleModel rotates the session model through the scoped set (Ctrl+P /
-// Shift+Ctrl+P).
-func (m *model) cycleModel(delta int) (tea.Model, tea.Cmd) {
-	models := isession.AvailableModels(m.st.Core)
-	scoped := isession.FilterScoped(models, m.st.ScopedModels)
-	if len(scoped) < 2 {
-		msg := "Only one model available"
-		if !m.st.ScopedModels.AllEnabled() {
-			msg = "Only one model in scope"
-		}
-		return m, tea.Println(styleNotice.Render(msg))
-	}
-	cur := -1
-	for i, mm := range scoped {
-		if mm.Provider == m.st.Sess.Provider && mm.ID == m.st.Sess.Model {
-			cur = i
-			break
-		}
-	}
-	next := scoped[((cur+delta)%len(scoped)+len(scoped))%len(scoped)]
-	m.st.Sess.Provider, m.st.Sess.Model = next.Provider, next.ID
-	saveSessionModel(m.st)
-	return m, tea.Println(styleNotice.Render("Switched to " + next.Provider + "/" + next.ID))
-}
-
+// pickSelected applies the highlighted palette command.
 func (m *model) pickSelected() (tea.Model, tea.Cmd) {
 	if m.sel == nil || len(m.sel.items) == 0 {
 		m.sel = nil

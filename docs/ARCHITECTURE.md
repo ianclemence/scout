@@ -30,7 +30,7 @@ pkg/
                      scoped-model state (filter/cycle/persist)
   tui/               Bubble Tea session: scrollback transcript, composer,
                      palette, approval card, footer, markdown;
-                     scoped-models + searchable model selectors;
+                     searchable model selectors;
                      staged login/logout flows (method → provider → key)
   mcpclient/         Scout as MCP client (official Go SDK; HTTP + stdio)
   upwork/            first MCP adapter helpers (endpoint, discovery mapping)

@@ -52,7 +52,7 @@ var (
 	styleModelCloud = lipgloss.NewStyle().Foreground(cBlue).Bold(true)
 	styleModelPod   = lipgloss.NewStyle().Foreground(cMuted).Bold(true)
 
-	// Model selectors (/model, /scoped-models).
+	// Model selector (/model).
 	styleModelScopeTitle    = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 	styleModelScopeHint     = lipgloss.NewStyle().Foreground(cMuted)
 	styleModelScopeFooter   = lipgloss.NewStyle().Foreground(cFaint)

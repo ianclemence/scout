@@ -31,7 +31,7 @@ func runInteractive(resumeRef string) error {
 			return err
 		}
 	}
-	st := &isession.ReplState{Core: c, Sess: sess, ScopedModels: isession.LoadScopedModels(c)}
+	st := &isession.ReplState{Core: c, Sess: sess}
 	if msgs, err := csession.LoadMessages(c.DB, sess.ID, 20); err == nil {
 		for _, m := range msgs {
 			st.History = append(st.History, llm.Message{Role: m.Role, Content: m.Content})

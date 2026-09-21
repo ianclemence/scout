@@ -108,10 +108,9 @@ type model struct {
 	// that needs authentication (e.g. "Upwork needs auth"). It is refreshed
 	// when sources change, never queried every frame.
 	connHint string
-	// scopedSel and modelSel are the interactive model dialogs. Only one may
-	// be open at a time; both render in the dock below the composer.
-	scopedSel *scopedModelsUI
-	modelSel  *modelPickerUI
+	// modelSel is the interactive model dialog; it renders in the dock below
+	// the composer.
+	modelSel *modelPickerUI
 	// picker is the general searchable list used by /thinking, /sessions,
 	// /approvals, /skills, /tools. It renders in the dock like the others.
 	picker   *listPickerUI
@@ -321,23 +320,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
-	if m.scopedSel != nil {
-		key := msg.String()
-		if key == "esc" || key == "ctrl+c" {
-			m.scopedSel = nil
-			return m, nil
-		}
-		if persist := m.scopedSel.handleKey(key); persist {
-			ids := m.scopedSel.ids
-			if err := m.st.SetScopedModels(ids); err != nil {
-				m.scopedSel = nil
-				return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: err.Error()}))
-			}
-			m.scopedSel.dirty = false
-			return m, tea.Println(styleNotice.Render("Model selection saved to settings"))
-		}
-		return m, nil
-	}
 	if m.modelSel != nil {
 		key := msg.String()
 		sel, doSelect, setDefault, cancel := m.modelSel.handleKey(key)
@@ -459,10 +441,6 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+l":
 		m.openModelSelector("")
 		return m, nil
-	case "ctrl+p":
-		return m.cycleModel(1)
-	case "shift+ctrl+p":
-		return m.cycleModel(-1)
 	case "enter":
 		if m.working {
 			return m, nil
@@ -538,11 +516,6 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 			m.openOpportunities()
 			return m, m.flushCmds()
 		}
-	case "skills":
-		if strings.TrimSpace(args) == "" {
-			m.openSkills()
-			return m, m.flushCmds()
-		}
 	case "applications", "apps":
 		if strings.TrimSpace(args) == "" {
 			m.openApplications()
@@ -556,7 +529,6 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 	}
 	m.st.Width = m.width
 	m.st.SwitchSession = m.switchSession
-	m.st.OpenScopedModels = m.openScopedModels
 	m.st.OpenModelSelector = m.openModelSelector
 	m.st.OpenThinking = m.openThinking
 	m.st.OpenSessions = m.openSessions

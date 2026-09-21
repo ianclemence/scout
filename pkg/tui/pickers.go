@@ -22,14 +22,6 @@ func shortID(id string) string {
 	return id
 }
 
-// firstLine returns the first line of s (used for skill summaries).
-func firstLine(s string) string {
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		return s[:i]
-	}
-	return s
-}
-
 // This file holds the general interactive pickers that make Scout's slash
 // commands first-class: an inline, searchable list with a marked current row,
 // dim descriptions, and a footer that names exactly what each key does.
@@ -482,38 +474,6 @@ func (m *model) runOpportunityAction(action, id string) string {
 		return ""
 	}
 	return ""
-}
-
-// openSkills opens the skill picker. Selecting a skill loads its workflow
-// into the conversation as an agent request (the local equivalent of
-// invoking the skill) and prints the workflow body.
-func (m *model) openSkills() {
-	reg, err := m.st.Core.SkillRegistry()
-	if err != nil {
-		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
-		return
-	}
-	var items []pickItem
-	for _, s := range reg.List() {
-		items = append(items, pickItem{
-			label:  s.Name,
-			detail: firstLine(s.Body),
-			value:  s.Name,
-		})
-	}
-	if len(items) == 0 {
-		m.println(entry{kind: eNotice, text: "No skills available.", at: time.Now()})
-		return
-	}
-	m.picker = newListPicker("Skills", "enter loads the workflow", "enter load", items, func(name string) string {
-		for _, s := range reg.List() {
-			if s.Name == name {
-				m.entries = append(m.entries, entry{kind: eNotice, text: "Skill " + s.Name + "\n\n" + s.Body, at: time.Now()})
-				return "loaded skill " + s.Name
-			}
-		}
-		return ""
-	})
 }
 
 // openApplications opens the application picker. Selecting one shows its

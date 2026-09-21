@@ -104,7 +104,7 @@ scout
 
 A full-screen chat session opens. Type `/status` — it shows your provider, model, profile state, and counts. On a fresh install the profile is empty; that's step 5.
 
-Type `/` for commands, `Ctrl+L` to pick a model, `Ctrl+P` to cycle the scoped set, `Esc` to stop a running turn.
+Type `/` for commands, `Ctrl+L` to pick a model, `Esc` to stop a running turn.
 
 ### 5. Teach Scout who you are
 
@@ -168,7 +168,7 @@ PROPOSAL DRAFT
 Based on: <ids>   Rate 0 hourly
 ```
 
-Inspect what's citable: `/cv` shows your resume content and the items a proposal may cite. If a claim isn't supported, it doesn't go in.
+Inspect what's citable: `/profile evidence` shows your resume content and the items a proposal may cite. If a claim isn't supported, it doesn't go in.
 
 ### 9. Approve the submission
 
@@ -218,7 +218,7 @@ its normalized work-source model.
 Once connected, approved submissions execute through the official
 integration — the adapter dispatches to the source's own discovered submit
 tool only after an approval is granted — and the application lands in your
-pipeline (`/applications`, `/pipeline`). Other MCP-enabled job sources connect
+pipeline (`/applications`). Other MCP-enabled job sources connect
 the same way (`scout integrations add Name <url>` or
 `scout integrations add Name --command "prog args"`); Upwork is simply the
 first one.
@@ -280,44 +280,44 @@ Commands are grouped by job in `/help` and the palette (type `/`).
 
 | Command | Description |
 |---------|-------------|
-| `/discover [query]` | Run discovery across connected sources (read-only) |
+| `/discover [query]` | Search connected sources and store new work |
 | `/opportunities [query]` | Browse stored opportunities (picker when bare) |
 | `/opportunity <id\|#>` | Posting + evaluation + proposal |
 | `/analyze <id>` | Deterministic filter + structured fit |
 | `/proposal <id>` | Draft a grounded proposal (never sends) |
-| `/applications`, `/pipeline`, `/inbox` | Track outcomes |
+| `/applications` | Applications and pipeline counts |
 | `/feedback <id> <signal> [note]` | Explicit preference data (visible, never hidden) |
 
 **Decide**
 
 | Command | Description |
 |---------|-------------|
-| `/approvals [approve\|reject <id>]` | The trust boundary; picker when bare |
+| `/approvals` | The trust boundary; picker when bare |
 
 **You**
 
 | Command | Description |
 |---------|-------------|
-| `/profile`, `/cv` | Who Scout thinks you are; resume content and citable items |
+| `/profile` | Who Scout thinks you are |
 | `/profile import <path>` | Import a CV without leaving the session |
+| `/profile evidence` | Resume content and citable items |
 
 **Connect**
 
 | Command | Description |
 |---------|-------------|
 | `/sources` / `/integrations` | Work sources & MCP connectors: list, test, add, token, enable, disable, remove |
-| `/providers`, `/login [provider]`, `/logout` | Credentials: availability, staged sign-in (account → Anthropic Claude Pro/Max OAuth, or API key → masked prompt), remove stored key |
-| `/model [provider/model]`, `/scoped-models` | Conversation model (searchable picker: Tab all/scoped, Ctrl+S default); scope for Ctrl+P cycling |
-| `/thinking [level]` | Reasoning level (interactive picker), mapped to provider controls |
-| `/skills`, `/tools` | Skill workflows, tool registry with permission classes |
+| `/login [provider]`, `/logout` | Credentials: staged sign-in (account → Anthropic Claude Pro/Max OAuth, or API key → masked prompt) |
+| `/model [provider/model]` | Conversation model (searchable picker, Ctrl+S default) |
+| `/thinking <level>` | Reasoning level (interactive picker) |
 
 **Session**
 
 | Command | Description |
 |---------|-------------|
-| `/status`, `/session`, `/sessions`, `/new`, `/name` | Session lifecycle (bare `/sessions` or `/resume` opens the picker) |
-| `/export <path>`, `/copy`, `/clear`, `/compact` | Transcript tools |
-| `/doctor`, `/changelog`, `/keys`, `/help`, `/quit` | Diagnostics, notes, shortcuts, exit |
+| `/status`, `/sessions`, `/new`, `/name` | Session lifecycle (bare `/sessions` or `/resume` opens the picker) |
+| `/export <path>`, `/compact` | Transcript tools |
+| `/doctor`, `/help`, `/quit` | Diagnostics, help, exit |
 
 Anything without a slash is a request to the agent. Piped (non-TTY) input falls back to the classic line loop automatically.
 

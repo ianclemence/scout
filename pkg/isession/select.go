@@ -239,10 +239,9 @@ func loginProviderState(ctx *SessionCtx, p string) string {
 	return "unconfigured"
 }
 
-// cmdModel: with an exact "provider/model" argument it
-// switches immediately; otherwise it opens the searchable model selector
-// (pre-filled with the argument as the search term). Scoped models, when set,
-// restrict what the selector offers. The TUI provides OpenModelSelector; the
+// cmdModel: with an exact "provider/model" argument it switches immediately;
+// otherwise it opens the searchable model selector (pre-filled with the
+// argument as the search term). The TUI provides OpenModelSelector; the
 // line-mode fallback is a numbered prompt over the same model set.
 func cmdModel(ctx *SessionCtx, args string) error {
 	q := strings.TrimSpace(args)
@@ -290,18 +289,6 @@ func cmdModel(ctx *SessionCtx, args string) error {
 	return switchSessionModel(ctx, m.Provider, m.ID)
 }
 
-// cmdScopedModels is an interactive enable/disable +
-// reorder list for models used when cycling with Ctrl+P. Changes are
-// session-local; the selector's Ctrl+S persists them to settings. The TUI
-// provides the full interactive component; line mode uses a numbered toggle.
-func cmdScopedModels(ctx *SessionCtx, args string) error {
-	if ctx.OpenScopedModels != nil {
-		ctx.OpenScopedModels()
-		return nil
-	}
-	return scopedModelsLineUI(ctx, args)
-}
-
 // switchSessionModel sets the session conversation model and records it.
 func switchSessionModel(ctx *SessionCtx, prov, model string) error {
 	ctx.Session.Provider, ctx.Session.Model = prov, model
@@ -323,13 +310,9 @@ func exactModelExists(ctx *SessionCtx, prov, model string) bool {
 }
 
 // selectorModels returns the model set the /model selector should offer: the
-// configured-provider catalog, further narrowed by the scoped set when active.
+// configured-provider catalog.
 func selectorModels(ctx *SessionCtx) []registry.ModelInfo {
-	models := AvailableModels(ctx.Core)
-	if ctx.ScopedModels != nil {
-		return FilterScoped(models, ctx.ScopedModels())
-	}
-	return models
+	return AvailableModels(ctx.Core)
 }
 
 // fuzzyFilterModels filters by a case-insensitive substring match across
@@ -358,132 +341,6 @@ func modelNote(m registry.ModelInfo) string {
 	default:
 		return m.Source
 	}
-}
-
-// scopedModelsLineUI is the non-TTY fallback for /scoped-models: it prints the
-// current enable/order state and accepts toggles and reorders by number. It
-// lists the full catalog so any model can be enabled in advance.
-func scopedModelsLineUI(ctx *SessionCtx, args string) error {
-	models := AllModels(ctx.Core)
-	sc := ScopedModels{}
-	if ctx.ScopedModels != nil {
-		sc = ctx.ScopedModels()
-	}
-
-	switch strings.ToLower(firstField(args)) {
-	case "all":
-		if err := ctx.SetScopedModels(nil); err != nil {
-			return err
-		}
-		ctx.Printf("Scoped models → all enabled.\n")
-		return nil
-	case "clear":
-		if err := ctx.SetScopedModels([]string{}); err != nil {
-			return err
-		}
-		ctx.Printf("Scoped models → none enabled (cycling disabled).\n")
-		return nil
-	case "":
-		// fall through to listing
-	default:
-		return fmt.Errorf("usage: /scoped-models [all|clear]")
-	}
-
-	ctx.Printf("Scoped models (%s; Ctrl+P cycles enabled):\n", scopedCount(sc, models))
-	ordered := orderedModelIDs(sc, models)
-	byID := map[string]registry.ModelInfo{}
-	for _, m := range models {
-		byID[m.Provider+"/"+m.ID] = m
-	}
-	for i, id := range ordered {
-		mark := "○"
-		if sc.IsEnabled(id) {
-			mark = "✓"
-		}
-		cur := ""
-		if m, ok := byID[id]; ok && m.Provider == ctx.Session.Provider && m.ID == ctx.Session.Model {
-			cur = "  ← current"
-		}
-		ctx.Printf("  %2d  %s %s%s\n", i+1, mark, id, cur)
-	}
-	ctx.Printf("Toggle by number (space-separated), or /scoped-models all|clear: ")
-	choice, err := readLineCooked()
-	if err != nil || strings.TrimSpace(choice) == "" {
-		return nil
-	}
-	ids := sc.IDs()
-	if ids == nil {
-		ids = ordered
-	}
-	set := map[string]bool{}
-	for _, id := range ids {
-		set[id] = true
-	}
-	for _, f := range strings.Fields(choice) {
-		var n int
-		if _, err := fmt.Sscanf(f, "%d", &n); err != nil || n < 1 || n > len(ordered) {
-			continue
-		}
-		id := ordered[n-1]
-		if sc.AllEnabled() || set[id] {
-			delete(set, id)
-		} else {
-			set[id] = true
-		}
-	}
-	var next []string
-	for _, id := range ordered {
-		if set[id] {
-			next = append(next, id)
-		}
-	}
-	if len(next) == 0 {
-		next = []string{}
-	}
-	if err := ctx.SetScopedModels(next); err != nil {
-		return err
-	}
-	ctx.Printf("Scoped models updated (%d enabled).\n", len(next))
-	return nil
-}
-
-func scopedCount(sc ScopedModels, models []registry.ModelInfo) string {
-	if sc.AllEnabled() {
-		return fmt.Sprintf("all %d enabled", len(models))
-	}
-	enabled := 0
-	for _, id := range sc.ids {
-		for _, m := range models {
-			if m.Provider+"/"+m.ID == id {
-				enabled++
-			}
-		}
-	}
-	return fmt.Sprintf("%d/%d enabled", enabled, len(models))
-}
-
-// orderedModelIDs returns the explicit scoped order followed by the remaining
-// available models.
-func orderedModelIDs(sc ScopedModels, models []registry.ModelInfo) []string {
-	all := make([]string, 0, len(models))
-	for _, m := range models {
-		all = append(all, m.Provider+"/"+m.ID)
-	}
-	if sc.AllEnabled() {
-		return all
-	}
-	seen := map[string]bool{}
-	out := make([]string, 0, len(all))
-	for _, id := range sc.ids {
-		out = append(out, id)
-		seen[id] = true
-	}
-	for _, id := range all {
-		if !seen[id] {
-			out = append(out, id)
-		}
-	}
-	return out
 }
 
 func splitModelRef(s string) (string, string) {
@@ -597,69 +454,6 @@ func cmdExport(ctx *SessionCtx, args string) error {
 		return err
 	}
 	ctx.Printf("Exported %d messages to %s.\n", len(msgs), path)
-	return nil
-}
-
-func cmdCopy(ctx *SessionCtx, args string) error {
-	msgs, err := csession.LoadMessages(ctx.Core.DB, ctx.Session.ID, 20)
-	if err != nil {
-		return err
-	}
-	last := ""
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if msgs[i].Role == "assistant" && strings.TrimSpace(msgs[i].Content) != "" {
-			last = msgs[i].Content
-			break
-		}
-	}
-	if last == "" {
-		return fmt.Errorf("no assistant message to copy yet")
-	}
-	if err := copyToClipboard(last); err != nil {
-		ctx.Printf("Clipboard unavailable (%s). Last answer printed below:\n\n%s\n", err, last)
-		return nil
-	}
-	ctx.Printf("Copied last answer (%d chars).\n", len(last))
-	return nil
-}
-
-func copyToClipboard(s string) error {
-	var cmd *exec.Cmd
-	switch {
-	case hasBin("wl-copy"):
-		cmd = exec.Command("wl-copy")
-	case hasBin("xclip"):
-		cmd = exec.Command("xclip", "-selection", "clipboard")
-	case hasBin("xsel"):
-		cmd = exec.Command("xsel", "-b")
-	case hasBin("pbcopy"):
-		cmd = exec.Command("pbcopy")
-	case hasBin("clip.exe"):
-		cmd = exec.Command("clip.exe")
-	default:
-		return fmt.Errorf("no clipboard tool (wl-copy/xclip/xsel/pbcopy)")
-	}
-	cmd.Stdin = strings.NewReader(s)
-	return cmd.Run()
-}
-
-func hasBin(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
-}
-
-func cmdKeys(ctx *SessionCtx, args string) error {
-	ctx.Printf("Keys:\n")
-	ctx.Printf("  enter        send · alt-enter newline in composer\n")
-	ctx.Printf("  esc          abort turn · close dialogs · quit when idle\n")
-	ctx.Printf("  ctrl+c       abort turn · quit when idle\n")
-	ctx.Printf("  ctrl+l       model picker (tab all/scoped · ctrl+s set default)\n")
-	ctx.Printf("  ctrl+p       cycle the enabled model scope (shift+ctrl+p previous)\n")
-	ctx.Printf("  tab          complete palette selection · scope toggle in /model\n")
-	ctx.Printf("  ↑↓           navigate lists · type to filter selectors · history in line mode\n")
-	ctx.Printf("  1 / 2        approve / reject on the approval card\n")
-	ctx.Printf("  ctrl+a/x     (scoped-models) enable all / clear all\n")
-	ctx.Printf("  alt+↑↓       (scoped-models) reorder · ctrl+s saves\n")
 	return nil
 }
 

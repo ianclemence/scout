@@ -6,7 +6,7 @@ Scout handles CVs, messages, API keys, and OAuth tokens on a self-hosted Pi.
 
 - Master key: `SCOUT_MASTER_KEY` env, else auto-generated 0600 file `$DATA_DIR/.masterkey`.
 - Credentials encrypted with AES-256-GCM in the SQLite `secrets` table.
-- Never in git (`.gitignore`: `.env*`, `*.db*`, `.masterkey`, history), logs, errors, API responses, or example files. `scout config` and `/providers` redact.
+- Never in git (`.gitignore`: `.env*`, `*.db*`, `.masterkey`, history), logs, errors, API responses, or example files. `scout config` redacts.
 - Tradeoff (explicit): holder of master key + DB can decrypt. Backups include the encrypted secrets table — documented in `scout backup` output.
 
 ## Terminal

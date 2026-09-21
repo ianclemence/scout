@@ -63,8 +63,8 @@ This document is the design contract for the interactive terminal.
   decisions. Printed with `tea.Println`, so the terminal owns them.
 - **Live dock** = streaming preview, composer/approval card, one selector,
   stats line, key hints.
-- Exactly one modal (login flow, approval card, scoped-models, model picker,
-  list picker, command palette) is active at a time.
+- Exactly one modal (login flow, approval card, model picker, list picker,
+  command palette) is active at a time.
 
 ---
 
@@ -77,14 +77,12 @@ the line-mode fallback, and `scout help` all read it.
 ### Work
 | Command | Purpose |
 |---|---|
-| `/discover [query]` | Run discovery across connected sources (read-only) |
+| `/discover [query]` | Search connected sources and store new work |
 | `/opportunities [query]` | Browse stored opportunities (picker when bare) |
 | `/opportunity <id>` | Full posting + evaluation + proposal |
 | `/analyze <id>` | Deterministic filter + structured fit |
 | `/proposal <id>` | Draft a grounded proposal (never sends) |
-| `/applications` | Pipeline by stage |
-| `/pipeline` | Counts by stage |
-| `/inbox` | Messages needing attention |
+| `/applications` | Applications and pipeline counts |
 | `/feedback <id> <signal> [note]` | Record explicit preference |
 
 ### Decide
@@ -95,23 +93,21 @@ the line-mode fallback, and `scout help` all read it.
 ### You
 | Command | Purpose |
 |---|---|
-| `/profile` | Structured profile summary, `import <path>` to update |
-| `/cv` | Resume content and citable items |
+| `/profile` | Structured profile summary, `import <path>` to update, `evidence` for the CV |
 
 ### Connect
 | Command | Purpose |
 |---|---|
-| `/sources`, `/integrations` | Work sources & MCP connectors: status, capabilities, add/test |
-| `/providers` | Provider availability |
-| `/login [provider]`, `/logout` | Staged sign-in / remove stored key |
-| `/model`, `/scoped-models`, `/thinking` | Reasoning configuration |
+| `/sources`, `/integrations` | Work sources & MCP connectors |
+| `/login <provider>`, `/logout` | Staged sign-in / remove stored credential |
+| `/model`, `/thinking` | Model and reasoning configuration |
 
 ### Session
 | Command | Purpose |
 |---|---|
-| `/status`, `/session`, `/sessions`, `/new`, `/resume`, `/name` | Lifecycle |
-| `/export`, `/copy`, `/keys`, `/clear`, `/compact` | Transcript |
-| `/skills`, `/tools`, `/doctor`, `/changelog`, `/help`, `/quit` | Reference |
+| `/status`, `/sessions`, `/new`, `/name` | Lifecycle |
+| `/export`, `/compact` | Transcript |
+| `/doctor`, `/help`, `/quit` | Diagnostics, help, exit |
 
 ---
 
