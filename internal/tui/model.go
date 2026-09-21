@@ -460,6 +460,9 @@ func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 
 func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 	switch ev.Type {
+	case "turn_start":
+		m.toolLine = ""
+		m.toolName = ""
 	case "token":
 		m.stream.WriteString(ev.Text)
 	case "tool_start":
@@ -469,6 +472,8 @@ func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 	case "tool_end":
 		m.toolLine = ""
 		m.toolName = ""
+	case "skill":
+		m.toolLine = "skill: " + ev.Name
 	case "error":
 		m.println(entry{kind: eErr, text: ev.Err.Error(), at: time.Now()})
 	}
