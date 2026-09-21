@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ianclemence/scout/pkg/changelog"
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/secret"
@@ -80,6 +81,8 @@ func main() {
 		err = withCore(func(c *runtime.Core) error { return mcpCmd(c, rest) })
 	case "version", "--version", "-v":
 		fmt.Println("scout", version.Version)
+	case "changelog", "changes", "whatsnew":
+		fmt.Println(changelog.Raw())
 	case "help", "--help", "-h":
 		usage()
 	default:
@@ -116,7 +119,11 @@ func usage() {
   scout config                 effective config (secrets redacted)
   scout doctor                 diagnostics for Raspberry Pi troubleshooting
   scout backup <file>          backup database
-  scout update [--dry-run] [--force]  pull, rebuild, reinstall, restart service
+  scout update [--self|--models|--all] [--check|--notes] [--force] [--dry-run]
+               [--channel release|dev] [--version V]
+                         install a verified release (skip when current);
+                         --channel dev builds the local checkout
+  scout changelog            release notes for this install
   scout restore <file>         restore database backup
   scout mcp [stdio|serve]      Scout MCP server for other MCP clients
   scout version`)
