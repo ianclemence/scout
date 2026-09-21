@@ -7,11 +7,13 @@ import "testing"
 // catalog for exact-reference resolution).
 func TestExactModelResolvesUnconfigured(t *testing.T) {
 	core := testCore(t)
-	ctx := &SessionCtx{Core: core}
-	if !exactModelExists(ctx, "anthropic", "claude-haiku-4-5") {
+	if _, ok := findExactModel(AllModels(core), "anthropic/claude-haiku-4-5"); !ok {
 		t.Fatal("exact reference to an unconfigured provider's builtin should resolve")
 	}
-	if exactModelExists(ctx, "nope", "does-not-exist") {
+	if _, ok := findExactModel(AllModels(core), "claude-haiku-4-5"); !ok {
+		t.Fatal("bare id should resolve when unique")
+	}
+	if _, ok := findExactModel(AllModels(core), "nope/does-not-exist"); ok {
 		t.Fatal("unknown model must not resolve")
 	}
 }

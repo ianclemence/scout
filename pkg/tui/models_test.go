@@ -121,3 +121,28 @@ func TestScrollOffset(t *testing.T) {
 		t.Fatalf("clamped offset = %d", got)
 	}
 }
+
+// TestModelPickerViewPiLayout locks the Pi-style selector layout: bordered
+// panel, configured-providers hint, cursor/current/default markers, provider
+// badge, Model Name line, and the key hint.
+func TestModelPickerViewPiLayout(t *testing.T) {
+	core := uiTestCore(t)
+	uiConfigure(t, core, "deepseek")
+	p := newModelPickerUI(core, "deepseek", "deepseek-flash", "deepseek", "deepseek-flash", "")
+	v := p.view(100)
+	for _, want := range []string{
+		"─",
+		"Only showing models from configured providers",
+		"→ ",
+		"✓ ",
+		"[deepseek]",
+		"· default",
+		"Model Name:",
+		"enter to select",
+		"esc to cancel",
+	} {
+		if !strings.Contains(v, want) {
+			t.Fatalf("picker view missing %q:\n%s", want, v)
+		}
+	}
+}

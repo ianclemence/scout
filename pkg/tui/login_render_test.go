@@ -9,15 +9,15 @@ import (
 	"github.com/ianclemence/scout/pkg/isession"
 )
 
-// TestLoginViewRendersScoutPalette drives the staged login flow through Update
-// and asserts the rendered dock contains the expected Scout-styled content.
+// TestLoginViewRendersScoutPalette drives the login flow through Update and
+// asserts the rendered dock contains the expected Scout-styled content.
 func TestLoginViewRendersScoutPalette(t *testing.T) {
 	core := testCore(t)
 	st := &isession.ReplState{Core: core, Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}
 	m := initialModel(st)
 	m.width, m.height, m.ready = 100, 40, true
 
-	// /login -> method stage.
+	// /login -> provider stage (API key).
 	m.ta.SetValue("/login")
 	nm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m = nm.(*model)
@@ -25,20 +25,8 @@ func TestLoginViewRendersScoutPalette(t *testing.T) {
 		t.Fatal("login flow did not open")
 	}
 	v := m.View()
-	if !strings.Contains(v, "Select authentication method") ||
-		!strings.Contains(v, "Sign in with an account") ||
-		!strings.Contains(v, "Sign in with an API key") {
-		t.Fatalf("method stage must offer both methods:\n%s", v)
-	}
-
-	// Move to "Sign in with an API key" and Enter -> provider stage.
-	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	m = nm.(*model)
-	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	m = nm.(*model)
-	v = m.View()
 	if !strings.Contains(v, "Select provider to configure") {
-		t.Fatalf("provider stage not rendered:\n%s", v)
+		t.Fatalf("provider stage must render:\n%s", v)
 	}
 	if !strings.Contains(v, "OpenAI") || !strings.Contains(v, "DeepSeek") {
 		t.Fatalf("provider list missing entries:\n%s", v)

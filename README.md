@@ -307,7 +307,7 @@ Commands are grouped by job in `/help` and the palette (type `/`).
 | Command | Description |
 |---------|-------------|
 | `/sources` / `/integrations` | Work sources & MCP connectors: list, test, add, token, enable, disable, remove |
-| `/login [provider]`, `/logout` | Credentials: staged sign-in (account → Anthropic Claude Pro/Max OAuth, or API key → masked prompt) |
+| `/login [provider]`, `/logout` | Credentials: provider sign-in (masked API key prompt) |
 | `/model [provider/model]` | Conversation model (searchable picker, Ctrl+S default) |
 | `/thinking <level>` | Reasoning level (interactive picker) |
 

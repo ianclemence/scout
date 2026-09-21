@@ -16,7 +16,6 @@ import (
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/isession"
 	"github.com/ianclemence/scout/pkg/llm"
-	"github.com/ianclemence/scout/pkg/oauth"
 	"github.com/ianclemence/scout/pkg/runtime"
 	"github.com/ianclemence/scout/pkg/version"
 )
@@ -51,11 +50,10 @@ type turnDoneMsg struct {
 	dur   time.Duration
 }
 
-// oauthResultMsg carries the outcome of a background account sign-in.
-type oauthResultMsg struct {
-	provider string
-	cred     *oauth.Credential
-	err      error
+// modelsRefreshedMsg carries the outcome of a background model-catalog refresh.
+type modelsRefreshedMsg struct {
+	count int
+	err   error
 }
 
 type spinTickMsg struct{}
@@ -102,8 +100,6 @@ type model struct {
 	palFilter string
 	login     *loginFlowUI
 	approval  *pendingApproval
-	// oauthFlow is the live account sign-in flow, if any.
-	oauthFlow *oauth.Flow
 	// connHint is a cached left-footer suffix naming a configured source
 	// that needs authentication (e.g. "Upwork needs auth"). It is refreshed
 	// when sources change, never queried every frame.
@@ -211,8 +207,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Release notes are available on demand (/changelog, `scout update`);
 		// they are deliberately not injected into the welcome card.
 		return m, tea.Println(m.welcomeCard())
-	case oauthResultMsg:
-		return m.finishOAuthLogin(msg)
+	case modelsRefreshedMsg:
+		return m.handleModelsRefreshed(msg)
 	}
 	if m.sel == nil && m.approval == nil {
 		var cmd tea.Cmd
@@ -440,7 +436,7 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "ctrl+l":
 		m.openModelSelector("")
-		return m, nil
+		return m, m.takeModelRefresh()
 	case "enter":
 		if m.working {
 			return m, nil
@@ -553,7 +549,11 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 		}
 		m.println(entry{kind: kind, text: s, at: time.Now()})
 	}
-	return m, m.flushCmds()
+	cmds := m.flushCmds()
+	if cmd := m.takeModelRefresh(); cmd != nil {
+		cmds = tea.Batch(cmds, cmd)
+	}
+	return m, cmds
 }
 
 func (m *model) println(e entry) *model {

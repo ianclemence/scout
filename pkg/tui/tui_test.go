@@ -284,41 +284,14 @@ func TestLoginStagedFlow(t *testing.T) {
 	m := initialModel(st)
 	m.width, m.ready = 80, true
 
-	// /login with no argument starts at the method stage.
+	// /login with no argument opens the provider selector directly.
 	nm, _ := m.runCommand("login")
 	m = nm.(*model)
-	if m.login == nil || m.login.stage != loginStageMethod {
-		t.Fatal("bare /login should open the method selector")
+	if m.login == nil || m.login.stage != loginStageProvider {
+		t.Fatal("bare /login should open the provider selector")
 	}
-	if v := m.login.view(80); !strings.Contains(v, "Select authentication method") {
-		t.Fatalf("method stage missing: %q", v)
-	}
-	// Both methods are offered, account first (matching the reference UI).
-	if len(m.login.methods) != 2 || m.login.methods[0].authType != "account" || m.login.methods[1].authType != "api_key" {
-		t.Fatalf("method list wrong: %+v", m.login.methods)
-	}
-	// Account sign-in has a provider (Anthropic): Enter moves to the account
-	// provider list rather than dead-ending on the method stage.
-	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	m = nm.(*model)
-	if m.login == nil || m.login.stage != loginStageProvider ||
-		len(m.login.filtered) != 1 || m.login.filtered[0].id != "anthropic" || m.login.filtered[0].authType != "account" {
-		t.Fatalf("account sign-in should list Anthropic: %+v", m.login)
-	}
-	// Esc returns to the method stage; choose API key and continue.
-	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
-	m = nm.(*model)
-	if m.login == nil || m.login.stage != loginStageMethod {
-		t.Fatalf("esc should return to the method stage: %+v", m.login)
-	}
-	// Move down to "Sign in with an API key" and Enter: the provider stage
-	// opens and lists providers.
-	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
-	m = nm.(*model)
-	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	m = nm.(*model)
-	if m.login.stage != loginStageProvider || len(m.login.providers) == 0 {
-		t.Fatalf("provider stage not reached: %+v", m.login)
+	if len(m.login.providers) == 0 {
+		t.Fatal("provider selector should list providers")
 	}
 	// Filtering narrows the list.
 	for _, r := range "deepseek" {
@@ -328,11 +301,11 @@ func TestLoginStagedFlow(t *testing.T) {
 	if len(m.login.filtered) != 1 || m.login.filtered[0].id != "deepseek" {
 		t.Fatalf("filter failed: %+v", m.login.filtered)
 	}
-	// Esc from the provider stage returns to the method stage.
+	// Esc cancels the flow.
 	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	m = nm.(*model)
-	if m.login == nil || m.login.stage != loginStageMethod {
-		t.Fatalf("esc should return to method stage: %+v", m.login)
+	if m.login != nil {
+		t.Fatalf("esc should cancel the flow: %+v", m.login)
 	}
 }
 
@@ -353,20 +326,5 @@ func TestLogoutListsStoredOnly(t *testing.T) {
 	m = nm.(*model)
 	if _, err := core.LoadSecret("llm:openai"); err == nil {
 		t.Fatal("key should be removed")
-	}
-}
-
-// TestAccountProviderSelectsOAuth verifies that choosing an account provider
-// moves the login flow to the OAuth stage (not the API-key dialog).
-func TestAccountProviderSelectsOAuth(t *testing.T) {
-	core := testCore(t)
-	f := newLoginFlow()
-	f.openProviderStage(core, "account", "")
-	if len(f.filtered) == 0 {
-		t.Fatal("account stage should list providers")
-	}
-	res := f.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
-	if res.moveTo == nil || *res.moveTo != loginStageOAuth || res.provider != "anthropic" {
-		t.Fatalf("account provider should select OAuth, got %+v", res)
 	}
 }

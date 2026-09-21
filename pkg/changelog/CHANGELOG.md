@@ -3,6 +3,22 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.8.0] - 2026-09-21
+
+Model selector redesign and sign-in simplification.
+
+- **The `/model` selector now follows the Pi coding agent.** A bordered panel
+  with a live fuzzy search (provider-first ranking), a list sorted current →
+  default → provider, a `→` cursor, `✓` current marker, `[provider]` badge and
+  `· default` marker, a scroll indicator, and a `Model Name:` line. Opening it
+  refreshes model catalogs in the background (15s bound) and reports the
+  result. `/model <ref>` resolves exact references the Pi way: canonical
+  `provider/id`, split forms, or a unique bare id.
+- **Account sign-in removed.** `/login` goes straight to the provider selector
+  and a masked API-key prompt; "Sign in with an account" (the Anthropic OAuth
+  flow) is gone, along with `pkg/oauth`. The Anthropic provider still honors a
+  subscription token supplied as a key.
+
 ## [0.7.9] - 2026-09-21
 
 Command-surface trim.

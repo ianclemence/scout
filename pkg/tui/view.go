@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -467,6 +468,44 @@ func (m *model) openModelSelector(search string) {
 		defProv, defModel = r.Provider, r.Model
 	}
 	m.modelSel = newModelPickerUI(m.st.Core, m.st.Sess.Provider, m.st.Sess.Model, defProv, defModel, search)
+}
+
+// takeModelRefresh consumes the picker's pending-refresh flag and returns a
+// command to refresh model catalogs in the background (Pi refreshes on open).
+func (m *model) takeModelRefresh() tea.Cmd {
+	if m.modelSel == nil || !m.modelSel.needsRefresh {
+		return nil
+	}
+	m.modelSel.needsRefresh = false
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		n, err := m.st.Core.Registry().Refresh(ctx, "")
+		return modelsRefreshedMsg{count: n, err: err}
+	}
+}
+
+// handleModelsRefreshed applies a background catalog refresh to the picker.
+func (m *model) handleModelsRefreshed(msg modelsRefreshedMsg) (tea.Model, tea.Cmd) {
+	if m.modelSel == nil {
+		return m, nil
+	}
+	if msg.err != nil && msg.count == 0 {
+		m.modelSel.errMsg = "Could not refresh model catalogs; showing cached models."
+		return m, nil
+	}
+	available := isession.AvailableModels(m.st.Core)
+	m.modelSel.configured = len(available) > 0
+	all := available
+	if !m.modelSel.configured {
+		all = isession.AllModels(m.st.Core)
+	}
+	m.modelSel.reload(all)
+	m.modelSel.errMsg = ""
+	m.modelSel.refreshStatus = "Model catalogs refreshed."
+	m.modelSel.refreshSuccess = true
+	m.modelSel.rebuild()
+	return m, nil
 }
 
 // applyModelSelection switches the session model (and optionally records it as

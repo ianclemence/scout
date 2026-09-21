@@ -9,22 +9,16 @@ import (
 	"github.com/ianclemence/scout/pkg/runtime"
 )
 
-// This file implements Scout's model dialog for the dock-style TUI:
-//
-//   * modelPickerUI — /model: a searchable selector. Enter switches the
-//     session model; Ctrl+S also sets it as the default.
-//
-// It renders in the dock below the composer, so it is modeled as a plain state
-// struct driven by handleKey and rendered by view.
+// This file implements Scout's model dialog for the dock-style TUI. Its layout
+// and behavior follow the model selector in the Pi coding agent: a bordered
+// panel with a live search field, a current/default/provider-sorted list with
+// cursor, current-model and default markers, a scroll indicator, the selected
+// model's display name, and a background catalog refresh.
 
-// Row cap for the model dialog.
+// pickerMaxVisible is the number of list rows shown at once (Pi uses 10).
 const pickerMaxVisible = 10
 
-// ---------- model picker (/model) ----------
-
-// modelPickerUI is the searchable /model selector. It offers configured-
-// provider models when any provider is configured, and falls back to the full
-// catalog (with a note) when nothing is.
+// modelPickerUI is the searchable /model selector.
 type modelPickerUI struct {
 	all        []registry.ModelInfo
 	filtered   []registry.ModelInfo
@@ -36,6 +30,11 @@ type modelPickerUI struct {
 	defProv    string
 	defModel   string
 	configured bool // whether at least one provider is configured
+
+	// refreshStatus is the background catalog-refresh message (Pi shows one).
+	refreshStatus  string
+	refreshSuccess bool
+	needsRefresh   bool
 }
 
 func newModelPickerUI(core *runtime.Core, curProv, curModel, defProv, defModel, initial string) *modelPickerUI {
@@ -48,58 +47,111 @@ func newModelPickerUI(core *runtime.Core, curProv, curModel, defProv, defModel, 
 		all = isession.AllModels(core)
 	}
 	u := &modelPickerUI{
-		all:        all,
-		curProv:    curProv,
-		curModel:   curModel,
-		defProv:    defProv,
-		defModel:   defModel,
-		search:     initial,
-		configured: configured,
+		all:          all,
+		curProv:      curProv,
+		curModel:     curModel,
+		defProv:      defProv,
+		defModel:     defModel,
+		search:       initial,
+		configured:   configured,
+		needsRefresh: true,
 	}
-	u.rebuild()
+	u.reload(all)
+	if initial != "" {
+		u.rebuild()
+	} else {
+		u.filtered = u.all
+		u.selectCurrent()
+	}
 	return u
 }
 
-func (u *modelPickerUI) rebuild() {
-	q := strings.ToLower(strings.TrimSpace(u.search))
-	var base []registry.ModelInfo
-	if q == "" {
-		base = u.all
-	} else {
-		for _, m := range u.all {
-			hay := strings.ToLower(m.Provider + "/" + m.ID + " " + m.DisplayName)
-			if strings.Contains(hay, q) {
-				base = append(base, m)
-			}
+// reload replaces the catalog (after an initial snapshot or a refresh).
+func (u *modelPickerUI) reload(all []registry.ModelInfo) {
+	u.all = u.sortModels(all)
+}
+
+func (u *modelPickerUI) sortModels(models []registry.ModelInfo) []registry.ModelInfo {
+	sorted := append([]registry.ModelInfo{}, models...)
+	sortSliceStable(sorted, func(a, b registry.ModelInfo) bool {
+		aCur, bCur := u.isCurrent(a), u.isCurrent(b)
+		if aCur != bCur {
+			return aCur
+		}
+		aDef, bDef := u.isDefault(a), u.isDefault(b)
+		if aDef != bDef {
+			return aDef
+		}
+		return a.Provider < b.Provider
+	})
+	return sorted
+}
+
+func (u *modelPickerUI) selectCurrent() {
+	idx := -1
+	for i, m := range u.filtered {
+		if u.isCurrent(m) {
+			idx = i
+			break
 		}
 	}
-	// "default" search: filter normally, but pin default-model matches to the
-	// top even when the literal query does not match their text.
-	if q != "" && strings.HasPrefix("default", q) {
-		var defs []registry.ModelInfo
-		seen := map[string]bool{}
-		for _, m := range u.all {
-			if u.isDefault(m) {
-				defs = append(defs, m)
-				seen[m.Provider+"\x00"+m.ID] = true
-			}
-		}
-		rest := make([]registry.ModelInfo, 0, len(base))
-		for _, m := range base {
-			if !seen[m.Provider+"\x00"+m.ID] {
-				rest = append(rest, m)
-			}
-		}
-		base = append(defs, rest...)
+	if idx >= 0 {
+		u.cur = idx
+		return
 	}
-	u.filtered = base
-	if q != "" {
-		u.cur = 0
-	} else if u.cur >= len(u.filtered) {
+	if u.cur >= len(u.filtered) {
 		u.cur = maxInt(0, len(u.filtered)-1)
 	}
 	if u.cur < 0 {
 		u.cur = 0
+	}
+}
+
+// modelSearchText mirrors Pi's selector search text: provider-prefixed forms
+// first so "provider/id" ranks above a proxy id that merely contains it.
+func modelSearchText(m registry.ModelInfo) string {
+	name := ""
+	if m.DisplayName != "" {
+		name = " " + m.DisplayName
+	}
+	return m.Provider + " " + m.Provider + "/" + m.ID + " " + m.Provider + " " + m.ID + name
+}
+
+func (u *modelPickerUI) isDefaultSearch(q string) bool {
+	q = strings.ToLower(strings.TrimSpace(q))
+	return q != "" && strings.HasPrefix("default", q)
+}
+
+func (u *modelPickerUI) rebuild() {
+	q := strings.TrimSpace(u.search)
+	if q == "" {
+		u.filtered = u.all
+	} else {
+		filtered := fuzzyFilter(u.all, q, modelSearchText)
+		if u.isDefaultSearch(q) {
+			var defs []registry.ModelInfo
+			keys := map[string]bool{}
+			for _, m := range u.all {
+				if u.isDefault(m) {
+					defs = append(defs, m)
+					keys[m.Provider+"\x00"+m.ID] = true
+				}
+			}
+			rest := make([]registry.ModelInfo, 0, len(filtered))
+			for _, m := range filtered {
+				if !keys[m.Provider+"\x00"+m.ID] {
+					rest = append(rest, m)
+				}
+			}
+			u.filtered = append(defs, rest...)
+		} else {
+			u.filtered = filtered
+		}
+	}
+	if q != "" {
+		u.cur = 0
+	} else {
+		u.selectCurrent()
 	}
 }
 
@@ -153,50 +205,66 @@ func (u *modelPickerUI) handleKey(key string) (sel registry.ModelInfo, doSelect,
 }
 
 func (u *modelPickerUI) view(width int) string {
+	if width < 20 {
+		width = 20
+	}
+	rule := stylePromptBar.Render(strings.Repeat("─", width))
 	var b strings.Builder
+	b.WriteString(rule + "\n\n")
 	if u.configured {
-		b.WriteString(styleModelScopeHint.Render("Showing models from configured providers.") + "\n")
+		b.WriteString(styleModelScopeHint.Render("Only showing models from configured providers. Use /login to add providers.") + "\n")
 	} else {
 		b.WriteString(styleModelScopeWarn.Render("No providers configured — showing all known models. Use /login to add providers.") + "\n")
 	}
-	b.WriteString(styleModelSearch.Render("  /"+u.search+"_") + "\n")
+	b.WriteString("\n")
+	b.WriteString(styleModelSearch.Render(u.search+"▍") + "\n\n")
 
 	if u.errMsg != "" {
-		b.WriteString(styleError.Render("  "+u.errMsg) + "\n")
-	}
-	if len(u.filtered) == 0 {
+		for _, ln := range strings.Split(u.errMsg, "\n") {
+			b.WriteString(styleError.Render(ln) + "\n")
+		}
+	} else if len(u.filtered) == 0 {
 		b.WriteString(stylePaletteNoMatch.Render("  No matching models") + "\n")
 	} else {
-		off := scrollOffset(u.cur, len(u.filtered), pickerMaxVisible)
-		end := minInt(off+pickerMaxVisible, len(u.filtered))
-		for i := off; i < end; i++ {
+		start := scrollOffset(u.cur, len(u.filtered), pickerMaxVisible)
+		end := minInt(start+pickerMaxVisible, len(u.filtered))
+		for i := start; i < end; i++ {
 			m := u.filtered[i]
+			selected := i == u.cur
 			cursor := "  "
-			if i == u.cur {
+			if selected {
 				cursor = stylePaletteSel.Render("→ ")
 			}
-			curMark := "  "
+			mark := "  "
 			if u.isCurrent(m) {
-				curMark = styleModelEnabled.Render("✓ ")
+				mark = styleModelEnabled.Render("✓ ")
 			}
-			name := m.ID
-			if i == u.cur {
-				name = stylePaletteSel.Render(name)
+			modelText := m.ID
+			if selected {
+				modelText = stylePaletteSel.Render(modelText)
 			}
 			badge := stylePaletteDesc.Render(" [" + m.Provider + "]")
 			def := ""
 			if u.isDefault(m) {
 				def = stylePaletteDesc.Render(" · default")
 			}
-			b.WriteString(cursor + curMark + name + badge + def + "\n")
+			b.WriteString(cursor + mark + modelText + badge + def + "\n")
 		}
-		if off > 0 || end < len(u.filtered) {
+		if start > 0 || end < len(u.filtered) {
 			b.WriteString(stylePaletteScroll.Render(fmt.Sprintf("  (%d/%d)", u.cur+1, len(u.filtered))) + "\n")
 		}
 		b.WriteString("\n" + stylePaletteDesc.Render("  Model Name: "+displayName(u.filtered[u.cur])) + "\n")
 	}
-	b.WriteString(styleModelScopeFooter.Render("  enter select · ctrl+s set default · esc cancel"))
-	return strings.TrimRight(b.String(), "\n")
+	if u.refreshStatus != "" {
+		style := stylePaletteDesc
+		if u.refreshSuccess {
+			style = styleModelEnabled
+		}
+		b.WriteString("\n" + style.Render("  "+u.refreshStatus) + "\n")
+	}
+	b.WriteString("\n" + styleModelScopeFooter.Render("  enter to select · ctrl+s to set as default · esc to cancel") + "\n")
+	b.WriteString(rule)
+	return b.String()
 }
 
 // ---------- helpers ----------
@@ -227,6 +295,17 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// sortSliceStable sorts in place, keeping equal elements in order.
+func sortSliceStable[T any](s []T, less func(a, b T) bool) {
+	// Insertion sort is fine for the catalog sizes Scout deals with and keeps
+	// the "current then default" ordering stable without a comparator adapter.
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && less(s[j], s[j-1]); j-- {
+			s[j], s[j-1] = s[j-1], s[j]
+		}
+	}
 }
 
 // isPrintableKey reports whether a key string is printable text that should be
