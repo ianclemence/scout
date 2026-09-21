@@ -38,4 +38,17 @@ func TestSystemPromptMarksUntrusted(t *testing.T) {
 	if !strings.Contains(SystemPrompt, "UNTRUSTED") {
 		t.Fatal("system prompt must treat marketplace content as untrusted")
 	}
+	for _, want := range []string{
+		"Core Agent Instructions",
+		"Never invent experience",
+		"REJECT", "MAYBE", "MATCH",
+		"require user approval before",
+		"FACT", "INFERENCE", "UNKNOWN",
+		"Model Independence",
+		"Find work.",
+	} {
+		if !strings.Contains(SystemPrompt, want) {
+			t.Fatalf("system prompt missing %q", want)
+		}
+	}
 }
