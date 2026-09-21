@@ -54,7 +54,10 @@ func (m *model) View() string {
 	return b.String()
 }
 
-// dockPreview is one reserved line: streaming tail with caret, else blank.
+// dockPreview is one reserved line above the composer: the tail of the
+// streaming reply with a caret while a turn runs, blank when idle. Tool
+// internals are never shown here — the live activity is named in the
+// composer's top rule ("Thinking", "Searching work…") instead.
 func (m *model) dockPreview() string {
 	w := m.width
 	if w < 10 {
@@ -63,17 +66,13 @@ func (m *model) dockPreview() string {
 	if !m.working {
 		return ""
 	}
-	line := ""
-	if m.toolLine != "" {
-		line = "◐ " + m.toolLine
-	} else if m.stream.Len() > 0 {
+	line := "▍"
+	if m.stream.Len() > 0 {
 		flat := strings.ReplaceAll(m.stream.String(), "\n", " ") + "▍"
 		lines := wrap(flat, w)
 		line = lines[len(lines)-1]
-	} else {
-		line = "▍"
 	}
-	return styleTool.Render(truncate(line, w))
+	return styleAssistant.Render(cellTruncate(line, w))
 }
 
 // promptBox is the rule-framed composer: top rule carries live status.
@@ -112,27 +111,19 @@ func (m *model) composerTopRule() string {
 		stylePromptBar.Render(" "+strings.Repeat("─", fill))
 }
 
-// activityWord names what Scout is doing: the active tool in Scout language.
+// activityWord is the live status in the composer's top rule: what Scout is
+// doing right now in product language — the active tool ("Searching work…",
+// "Drafting a proposal…") when one is running, otherwise "Thinking" — then
+// how long. The tool count is deliberately omitted, matching the reference
+// terminal UI where that detail lives elsewhere.
 func (m *model) activityWord() string {
-	word := "Working"
-	switch m.toolName {
-	case "search_opportunities", "discover_opportunities", "run_discovery":
-		word = "Searching"
-	case "analyze_opportunity", "get_opportunity":
-		word = "Analyzing"
-	case "prepare_proposal":
-		word = "Drafting"
-	case "list_messages", "list_applications", "get_pipeline":
-		word = "Reading"
-	case "get_profile", "list_evidence":
-		word = "Reviewing"
+	word := isession.ActivityLabel(m.toolName)
+	if word == "" {
+		word = "Thinking"
 	}
 	s := fmt.Sprintf("%s %s", spinnerFrames[m.spin%len(spinnerFrames)], word)
 	if d := time.Since(m.turnFrom); d > 0 {
 		s += " · " + formatElapsed(d)
-	}
-	if m.tools > 0 {
-		s += fmt.Sprintf(" · %d tool(s)", m.tools)
 	}
 	return s
 }

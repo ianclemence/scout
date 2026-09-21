@@ -12,6 +12,7 @@ import (
 
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
+	"github.com/ianclemence/scout/pkg/isession"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/runtime"
 )
@@ -83,13 +84,13 @@ func askCmd(c *runtime.Core, args []string) error {
 	final, err := c.RunAgent(ctx, eng, []llm.Message{{Role: "user", Content: strings.Join(q, " ")}}, "", func(ev runtime.Event) {
 		switch ev.Type {
 		case "tool_start":
-			fmt.Fprintf(os.Stderr, "◐ %s %s\n", ev.Name, ev.Args)
-		case "tool_end":
-			if ev.Err != nil {
-				fmt.Fprintf(os.Stderr, "✗ %s: %s\n", ev.Name, ev.Err)
-			} else {
-				fmt.Fprintf(os.Stderr, "✓ %s\n", ev.Text)
+			// Product-language status on stderr (diagnostics for scripts);
+			// raw tool names/args are never printed.
+			if a := isession.ActivityLabel(ev.Name); a != "" && a != "Thinking" {
+				fmt.Fprintf(os.Stderr, "◐ %s…\n", a)
 			}
+		case "tool_end":
+			// silent: tool results are internals, not the answer.
 		case "error":
 			fmt.Fprintf(os.Stderr, "error: %s\n", ev.Err)
 		default:

@@ -210,6 +210,55 @@ func signalContext() (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
+// ActivityLabel maps a tool name to a short, human activity phrase used in
+// the live status line ("Searching work…", "Drafting a proposal…"). It
+// returns "" when no tool is active. One definition shared by the TUI and
+// line mode keeps the wording consistent.
+func ActivityLabel(name string) string {
+	switch name {
+	case "":
+		return ""
+	case "search_opportunities", "search_opportunity_history", "search_application_history",
+		"discover_opportunities", "run_discovery", "find_duplicate_opportunity", "check_opportunity_status":
+		return "Searching work"
+	case "analyze_opportunity", "get_opportunity":
+		return "Analyzing fit"
+	case "prepare_proposal", "draft_cover_letter", "validate_application":
+		return "Drafting a proposal"
+	case "prepare_follow_up":
+		return "Drafting a follow-up"
+	case "answer_screening_questions":
+		return "Answering questions"
+	case "web_search":
+		return "Searching the web"
+	case "fetch_web_content", "github_repo_info", "github_repo_readme", "research_company":
+		return "Researching"
+	case "parse_document":
+		return "Reading a document"
+	case "get_profile", "get_user_cv", "get_user_experience", "get_user_portfolio",
+		"get_user_skills", "get_user_preferences", "list_evidence", "search_user_evidence",
+		"get_portfolio_evidence", "search_learned_preferences", "verify_claim":
+		return "Reviewing your profile"
+	case "save_opportunity", "record_application", "record_application_status",
+		"record_opportunity_outcome", "record_learned_observation", "add_feedback",
+		"update_user_profile":
+		return "Saving"
+	case "source_health", "get_source_capabilities", "list_sources":
+		return "Checking sources"
+	case "list_pending_approvals", "request_approval":
+		return "Filing an approval"
+	case "submit_application":
+		return "Submitting"
+	case "send_message":
+		return "Sending a message"
+	case "list_messages", "list_applications", "list_proposals", "get_pipeline":
+		return "Reading the pipeline"
+	case "load_skill":
+		return "Loading a skill"
+	}
+	return "Thinking"
+}
+
 // handleAgentTurn runs one conversational agent turn with streaming render.
 func handleAgentTurn(st *ReplState, input string, ctx context.Context) {
 	eng := st.Core.EngineFor(st.Sess.Provider, st.Sess.Model)
@@ -220,23 +269,31 @@ func handleAgentTurn(st *ReplState, input string, ctx context.Context) {
 	st.History = append(st.History, llm.Message{Role: "user", Content: input})
 	msgs := append([]llm.Message{}, st.History...)
 	var assistant strings.Builder
+	// Line mode renders the same product-language activity the TUI shows
+	// ("Thinking", "Searching work…"). Raw tool names, arguments, and tool
+	// output are never printed into the conversation — only a short activity
+	// line, overwritten in place — so model-loop internals cannot leak.
+	lastActivity := ""
 	_, err := st.Core.RunAgent(ctx, eng, msgs, st.Sess.Thinking, func(ev runtime.Event) {
 		switch ev.Type {
 		case "token":
 			assistant.WriteString(ev.Text)
 			fmt.Print(ev.Text)
 		case "tool_start":
-			fmt.Printf("\n◐ %s %s\n", ev.Name, ev.Args)
-		case "tool_end":
-			if ev.Err != nil {
-				fmt.Printf("✗ %s: %s\n", ev.Name, ev.Err)
-			} else {
-				fmt.Printf("✓ %s\n", ev.Text)
+			if a := ActivityLabel(ev.Name); a != "" && a != lastActivity {
+				lastActivity = a
+				fmt.Printf("\r\033[K◐ %s…", a)
 			}
+		case "tool_end":
+			// deliberately silent: tool results are internals, not chat.
 		case "error":
-			fmt.Printf("\nerror: %s\n", ev.Err)
+			fmt.Printf("\r\033[K")
+			fmt.Printf("error: %s\n", ev.Err)
 		}
 	})
+	if lastActivity != "" {
+		fmt.Print("\r\033[K")
+	}
 	fmt.Printf("\n")
 	final := assistant.String()
 	if err != nil && final == "" {

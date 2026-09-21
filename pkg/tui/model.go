@@ -3,6 +3,9 @@ package tui
 import (
 	"context"
 	"fmt"
+	"io"
+	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -112,8 +115,34 @@ func initialModel(st *isession.ReplState) *model {
 	return &model{st: st, ta: ta}
 }
 
+// silenceStderr parks the process stderr on /dev/null and silences the std
+// logger, returning a restore function. A stray write from any dependency can
+// otherwise corrupt the live composer frame; model-loop internals must never
+// reach the chat. Stdout stays untouched (the renderer writes there).
+func silenceStderr() func() {
+	log.SetOutput(io.Discard)
+	devnull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		return func() { log.SetOutput(os.Stderr) }
+	}
+	orig := os.Stderr
+	os.Stderr = devnull
+	return func() {
+		os.Stderr = orig
+		log.SetOutput(os.Stderr)
+		_ = devnull.Close()
+	}
+}
+
 // Run starts the full-screen session. Callers must ensure a TTY.
 func Run(st *isession.ReplState) error {
+	// Park stderr on /dev/null for the lifetime of the TUI so a stray write
+	// from any dependency (the std logger, a subprocess, a provider client)
+	// can never paint over the live composer frame. Stdout is untouched: the
+	// renderer writes there. This mirrors the reference terminal UI.
+	restore := silenceStderr()
+	defer restore()
+
 	m := initialModel(st)
 	p := tea.NewProgram(m)
 	m.prog = p
