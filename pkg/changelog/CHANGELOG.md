@@ -3,6 +3,15 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.11.1] - 2026-09-21
+
+Learning-signal refinement.
+
+- The preference model ignores generic role/domain words ("developer",
+  "build", "data", …) that appear in nearly every posting, so a single
+  feedback note cannot penalize an entire category. Learned terms are now
+  distinctive skills and domains.
+
 ## [0.11.0] - 2026-09-21
 
 Grounding, learning, and evaluation release.

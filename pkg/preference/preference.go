@@ -272,12 +272,25 @@ func tokenize(s string) []string {
 		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') && r != '.' && r != '#' && r != '+' && r != '-'
 	}) {
 		w = strings.Trim(w, ".-+")
-		if len(w) < 3 || stopwords[w] {
+		if len(w) < 3 || stopwords[w] || genericTerms[w] {
 			continue
 		}
 		out = append(out, w)
 	}
 	return out
+}
+
+// genericTerms are role/domain words that appear in almost every posting and
+// carry no preference signal. Learning on them would penalize whole categories
+// for a single feedback note.
+var genericTerms = map[string]bool{
+	"developer": true, "engineer": true, "engineering": true, "build": true,
+	"building": true, "senior": true, "junior": true, "expert": true,
+	"project": true, "projects": true, "product": true, "service": true,
+	"services": true, "team": true, "client": true, "company": true,
+	"data": true, "code": true, "software": true, "tech": true,
+	"technical": true, "full": true, "stack": true, "remote": true,
+	"term": true, "long": true, "task": true, "tasks": true, "support": true,
 }
 
 func normalizeTerm(t string) string {
