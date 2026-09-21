@@ -69,7 +69,7 @@ type model struct {
 
 func initialModel(st *isession.ReplState) *model {
 	ta := textarea.New()
-	ta.Placeholder = "Ask Scout, or / for commands…"
+	ta.Placeholder = ""
 	ta.Prompt = "› "
 	ta.CharLimit = 4000
 	ta.SetWidth(80)
