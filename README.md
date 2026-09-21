@@ -1,173 +1,327 @@
 # Scout
 
-Self-hosted AI work acquisition agent.
+> **Your profile. Your evidence. Your decision.**
+> *A self-hosted AI work acquisition agent that lives in your terminal — it finds legitimate freelance work, explains why it fits you, drafts the proposal, and never acts without your approval.*
 
-Scout lives in your terminal. It keeps your professional profile, discovers freelance opportunities that genuinely match your skills, explains why they match, prepares evidence-based proposals, and tracks your pipeline — while every consequential action stays under your explicit control.
+---
+
+## What Scout does for you
+
+Scout runs the job hunt so you don't have to live in the feed:
+
+- **It watches the market for you.** "Find Go + AI backend work on Upwork under my rates." Scout searches, filters out the noise, and keeps a shortlist.
+- **It tells you why something fits.** Not a score — skills matched, budget fit, scope clarity, client signals, risks, and the exact profile evidence behind each claim.
+- **It drafts the proposal.** Grounded in your real projects, tailored to the posting, with questions for the client. Never generic, never invented experience.
+- **It asks before anything consequential.** Submitting, spending Connects, messaging a client, accepting an offer — every one waits for your explicit approval, with the full context to decide.
+- **It tracks the pipeline.** Discovered → analyzed → proposed → submitted → replied → interview → offer. You always know what needs attention.
+
+You describe what you want in plain language, in your terminal. Scout does the research. You make the decisions.
+
+---
+
+## Why human control is the point
+
+Most "auto-apply bots" treat your Upwork account like a slot machine: spray proposals, burn Connects, risk your reputation and your account standing. Scout is built on the opposite rule: **the model drafts, the human decides.**
+
+- **Consequential actions are records, not side effects.** Submit, spend, send, accept, fund — each becomes a pending approval with its risk level. Unknown risk fails closed.
+- **Every claim cites evidence.** A proposal sentence exists because a CV section, project, or portfolio item backs it. Unsupported claims never ship as facts.
+- **Your data stays on your machine.** Profile, opportunities, keys, and history live in SQLite on your hardware. Cloud models are optional intelligence; local Ollama keeps working offline.
+- **Official integrations only.** Scout talks to Upwork through its official MCP — no scraping, no private endpoints, no platform-rule evasion.
+
+You get leverage on the boring parts. You keep the authority on everything that matters.
+
+---
+
+## How it works
+
+You express a goal. Scout checks your profile and evidence, runs deterministic filters, reasons about fit, prepares drafts, and files anything consequential as an approval. You approve; Scout executes through the official integration and tracks the outcome.
 
 ```
-Profile
-   ↓
-Discover
-   ↓
-Analyze
-   ↓
-Match
-   ↓
-Prepare
-   ↓
-Approve
-   ↓
-Apply
-   ↓
-Track
+You → Scout session → profile/evidence → deterministic filters
+    → agent analysis → proposal draft → YOUR APPROVAL
+    → official integration → pipeline tracking → feedback
 ```
 
-## A session
+**One product, three interfaces on one core.** The **interactive session** (`scout`) is the daily driver — talk, review, approve. **One-shot commands** (`scout analyze …`) script the same operations. The **Scout MCP server** lets OpenCode, Codex, or Claude drive the same core. They share `internal/runtime`, so a rule never exists in two places.
+
+---
+
+## Requirements
+
+### Hardware
+
+Reference target: Raspberry Pi 5 (8 GB), 32 GB SD, ARM64. Any Linux ARM64/x86-64 machine works.
+
+### Software
+
+- Go (to build; 1.24+)
+- Git + GitHub CLI (for install/update)
+- Ollama (optional, recommended for local models): `curl -fsSL https://ollama.com/install.sh | sh`
+
+---
+
+## First-time flow: from clone to first Upwork application
+
+This is the whole journey on a fresh machine. Each step builds on the last, using an Upwork job as the running example.
+
+### 1. Install
+
+```bash
+git clone https://github.com/ianclemence/scout.git
+cd scout
+go build -o ~/.local/bin/scout ./cmd/scout
+```
+
+`~/.local/bin` is on `PATH` on a standard Pi. From here on, `scout` works anywhere.
+
+### 2. Initialize
+
+```bash
+scout init
+```
+
+Creates `~/.local/share/scout` (database, key file, history) with locked-down permissions. Then verify:
+
+```bash
+scout doctor
+```
+
+You want `[OK]` on data-dir and sqlite, and `[OK] ollama` if Ollama is running. Cloud provider keys can come later — Scout is fully usable on the local model first.
+
+### 3. Run as a service (recommended)
+
+```bash
+cp scripts/scout.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now scout
+```
+
+This keeps the Scout MCP server listening on `127.0.0.1:3210` across reboots (with user lingering on). The interactive session doesn't need it, but other agents — and your future self over SSH — will use it. Check with `systemctl --user status scout`.
+
+### 4. Start your first session
+
+```bash
+scout
+```
 
 ```text
-$ scout
-Scout v0.2.0 · ollama/qwen3:0.6b · session sess-1789962
+Scout v0.3.0 · ollama/qwen3:0.6b · session sess-…
 Type /help for commands, or just ask. Ctrl-C interrupts · Ctrl-D exits.
 
 scout› /status
-scout v0.2.0 · session sess-1789962 (interactive)
-provider ollama · model qwen3:0.6b
-profile Ian Clemence · 6 skills
-opportunities 1 · pending approvals 0 · applications 0
-
-scout› What opportunities do I have and which match best?
-◐ search_opportunities {"query":"go api"}
-✓ [{"id":"opp-...","title":"Go SaaS API backend","status":"review"}]
-The Go SaaS API backend is your strongest match: 10 profile terms hit,
-budget acceptable, one scope question open. Recommendation: review.
-
-scout› /proposal 1
-Drafting proposal for Go SaaS API backend…
-[proposal draft with evidence refs and client questions]
-
-scout› /approvals
-ACTION REQUIRES APPROVAL
-  submit_proposal → opp-17899620  [risk high]
-  /approvals approve opp-17899620 · /approvals reject opp-17899620
 ```
 
-Scout drafts and recommends. You decide. Scout never submits, spends credits, sends messages, or accepts offers on its own.
+`/status` is the "am I set up?" command: provider, model, profile state, counts. On a fresh install the profile is empty — that's step 5.
 
-## Install (Raspberry Pi 5, ARM64)
+### 5. Teach Scout who you are
 
-```sh
-git clone https://github.com/ianclemence/scout.git && cd scout
-go build -o scout ./cmd/scout
-./scout init
-./scout               # interactive session
-```
+In another terminal (one-shot commands work while a session is open):
 
-Single Go binary, SQLite, no services to operate. Optional systemd unit for the MCP server in `scripts/`. Access over SSH or Tailscale; never expose the MCP port publicly.
-
-## Profile and evidence
-
-```sh
-scout profile import cv.txt     # txt, md, or text PDF
+```bash
+scout profile import ~/my-cv.txt
 scout profile show
 ```
 
-The CV becomes evidence. The structured profile is the source of truth and is editable. Every proposal cites the evidence it uses; unsupported claims never appear as facts.
-
-## Models and providers
-
-Scout is not locked to any vendor. Per-role models (screening, analysis, proposal, conversation, deep_analysis), switchable without restart:
+Back in the session:
 
 ```text
-scout› /model
-  1  ollama/qwen3:0.6b      role:conversation  ← current
-  2  openai/gpt-4o-mini     role:analysis
-  ...
+scout› /profile
+Profile: Ian Clemence — Senior Go Developer
+Skills: go, postgres, docker, react, …
+Evidence items: 1 (latest: cv_section:my-cv.txt)
 ```
 
-Supported: OpenAI, Anthropic, DeepSeek, Moonshot, Ollama, any OpenAI-compatible endpoint. Bring your own keys:
+Your CV becomes **evidence**. The structured profile is the source of truth Scout reasons from. Set your floor so Scout can filter for you — minimum budget, excluded work, max Connects per application (edit via `scout profile`, or the config file).
 
-```sh
-export OPENAI_API_KEY=…        # or ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, MOONSHOT_API_KEY
-scout login moonshot           # stored encrypted instead
+### 6. Bring an Upwork opportunity
+
+Copy a real Upwork posting into a file (full description matters — Scout reads the whole thing, not just keywords):
+
+```bash
+scout opportunity add --title "Go SaaS API backend" \
+  --description-file job.txt --skills "go, postgres, docker"
 ```
 
-Provider details (verified against current docs): DeepSeek (`https://api.deepseek.com`, `deepseek-flash`/`deepseek-v4-pro`); Moonshot (`https://api.moonshot.ai/v1`, `MOONSHOT_API_KEY`, `kimi-k3`/`kimi-k2.6`/`kimi-k2.7-code`). `scout models refresh` discovers provider models via `/models` (or Ollama tags) into a local cache; offline it falls back to cache, then the built-in catalog. Unknown metadata is shown as unknown, never invented.
+```text
+scout› /opportunities
+OPPORTUNITIES (1)
+ 1  Go SaaS API backend
+    opp-… · discovered
+```
 
-Reasoning is a per-session level (`/thinking off|low|medium|high|max`), mapped to each provider's real controls (e.g. `reasoning_effort`, thinking blocks, Ollama `think`). Credential precedence: credential store, then environment.
+### 7. Analyze the fit
 
-Local-first option: run everything on Ollama (`qwen3:0.6b` works on the Pi) and nothing leaves the device except marketplace calls you approve.
+```text
+scout› /analyze 1
+Filter: pass=true (passed deterministic gates)
+Recommendation: review — skills=strong risks=1
+  skills       strong       10 profile terms matched: go, docker, postgres, …
+  budget       acceptable   fixed 0–0 vs min 0
+  scope        weak         heuristic: description length
+  risks        1 signal     very short description — scope unclear
+```
 
-## Matching
+Or conversationally: *"Why does this one fit me, and what's the weakest part of the match?"* Plain text goes to the agent loop (with tools); `/commands` run locally without spending a model turn.
 
-Deterministic filters first (budget minimums, credit caps, excluded work, dedup), then structured evaluation (skills, budget, scope, client signals, risks) with optional LLM enrichment. Output explains *why* — never a single magic score.
+### 8. Draft the proposal
 
-## Approvals
+```text
+scout› /proposal 1
+PROPOSAL DRAFT
+[tailored draft citing your Go/Postgres/Docker evidence,
+ ending with sharp client questions]
+Evidence: <ids>   Rate 0 hourly
+```
 
-Read, search, analyze, and draft freely. Anything consequential — submit, spend credits, send, accept, fund — becomes a `pending_approval` item with risk level. Approve or reject in the session, via `scout approvals`, or through the MCP server. `SCOUT_DRY_RUN=1` disables external writes entirely.
+Inspect the evidence: `/evidence` shows what Scout may cite. If a claim isn't supported, it doesn't go in.
+
+### 9. Approve the submission
+
+Requesting submission files an approval instead of acting:
+
+```text
+scout› /approvals
+ACTION REQUIRES APPROVAL
+  submit_proposal → opp-…  [risk high]
+  [proposal text, bid, Connects cost]
+  /approvals approve opp-… · /approvals reject opp-…
+```
+
+This is the trust boundary. Nothing reaches Upwork until you say so.
+
+### 10. Connect Upwork for real
+
+```bash
+scout integrations add Upwork https://mcp.upwork.com/mcp
+scout integrations test Upwork
+```
+
+The test performs read-only capability discovery. Full OAuth sign-in completes in the browser at Upwork's authorization page; the token is stored encrypted in Scout, never logged. Until authenticated, discovery reports what the integration *can* do (search, proposals, messaging, contracts) and Scout maps those into its normalized work-source model.
+
+Once connected, approved submissions execute through the official Upwork MCP — the same draft/confirm semantics Upwork itself enforces — and the application lands in your pipeline (`/applications`, `/pipeline`).
+
+### 11. Keep it fresh
+
+```bash
+scout update              # pull + rebuild + reinstall + restart service
+scout backup ~/scout-backup.db   # profile, pipeline, and history (encrypted secrets included — keep private)
+```
+
+---
+
+## Updating
+
+```bash
+cd ~/scout            # your checkout (or set SCOUT_REPO)
+scout update          # fetch, refuse dirty trees, skip if current, rebuild, restart
+```
+
+`scout update --dry-run` previews. `scout update --force` redeploys regardless. Production runs releases, not working trees.
+
+---
+
+## Commands
+
+### One-shot CLI
+
+| Command | Description |
+|---------|-------------|
+| `scout` | Interactive session (resume: `scout resume <id>`) |
+| `scout ask [--json] "…"` | One agent turn, scriptable |
+| `scout status` | Profile, counts, state |
+| `scout discover` | Discovery summary (no external writes) |
+| `scout opportunities [query]` | List stored opportunities |
+| `scout opportunity show <id>` | Detail + evaluation + proposal |
+| `scout opportunity add --title T --description-file F` | Add a posting |
+| `scout analyze <id>` | Filter + structured fit evaluation |
+| `scout proposal <id>` | Draft proposal (no external writes) |
+| `scout approvals [list\|approve <id>\|reject <id>]` | Human control queue |
+| `scout applications` / `scout inbox` | Pipeline and messages |
+| `scout profile show\|import <file>` | Profile and CV evidence |
+| `scout providers` / `scout models [refresh [provider]]` | Providers and model catalog |
+| `scout login <provider>` | Store API key (masked prompt) |
+| `scout integrations [list\|add\|test]` | Work sources and MCP connectors |
+| `scout sessions [list]` | Persistent sessions |
+| `scout doctor` | Diagnostics (DB, providers, Ollama, disk, version) |
+| `scout backup <file>` / `scout restore <file>` | Data backup and restore |
+| `scout update [--dry-run] [--force]` | Self-update |
+| `scout mcp [stdio\|serve]` | MCP server for other agents |
+| `scout version` | Version |
+
+### Session slash commands
+
+| Command | Description |
+|---------|-------------|
+| `/help` | All commands |
+| `/status` | Provider, model, thinking, profile, counts |
+| `/profile`, `/evidence` | Who Scout thinks you are, and what it can cite |
+| `/opportunities [query]`, `/opportunity <id\|#>`, `/discover` | Pipeline intake |
+| `/analyze <id>`, `/proposal <id>` | Fit reasoning and drafting |
+| `/approvals [approve\|reject <id>]` | Decide consequential actions |
+| `/applications`, `/pipeline`, `/inbox` | Track outcomes |
+| `/feedback <id> <signal> [note]` | Explicit preference data (visible, never hidden) |
+| `/model [provider/model]` | Switch conversation model in-session (numbered picker) |
+| `/thinking <off\|low\|medium\|high\|max>` | Reasoning level, mapped to provider controls |
+| `/models`, `/providers`, `/sources` | Catalog, credentials, integrations |
+| `/login <provider>`, `/logout <provider>` | Key management |
+| `/session`, `/sessions`, `/new`, `/resume`, `/compact`, `/clear` | Session lifecycle |
+| `/doctor`, `/quit` | Diagnostics, exit |
+
+Anything without a slash is a request to the agent. Ctrl-C interrupts a turn; Ctrl-D exits.
+
+---
+
+## Configuration
+
+Precedence: **defaults < config file < environment**. User data lives in SQLite.
+
+Config file `~/.config/scout/config.json` (or `$SCOUT_CONFIG`) sets addresses, data dir, Ollama host, dry-run, and per-role models (`screening`, `analysis`, `proposal`, `conversation`, `deep_analysis`). See [CONFIGURATION.md](CONFIGURATION.md).
+
+### Providers and models
+
+Five first-class providers, each verified against current docs and Pi/Ghost's own registries:
+
+| Provider | Base URL | Key | Notes |
+|----------|----------|-----|-------|
+| OpenAI | `api.openai.com/v1` | `OPENAI_API_KEY` | `reasoning_effort` mapping; refresh via `/models` |
+| Anthropic | `api.anthropic.com` | `ANTHROPIC_API_KEY` | Thinking budgets; no list API (built-ins) |
+| DeepSeek | `api.deepseek.com` | `DEEPSEEK_API_KEY` | `deepseek-flash`, `deepseek-v4-pro` |
+| Moonshot | `api.moonshot.ai/v1` | `MOONSHOT_API_KEY` | `kimi-k3`, `kimi-k2.6`, `kimi-k2.7-code`; CN keys use `MOONSHOT_BASE_URL=https://api.moonshot.cn/v1` |
+| Ollama | `127.0.0.1:11434` | none | Auto-discovered local models; `think` flag |
+
+`OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` / `DEEPSEEK_BASE_URL` / `MOONSHOT_BASE_URL` override endpoints. Credential precedence: **credential store, then environment** — `scout login` / `/login` stores keys encrypted (AES-256-GCM); full values are never displayed, logged, or committed.
+
+`scout models refresh [provider]` updates the cached catalog from provider `/models` endpoints and Ollama tags; offline it falls back to cache, then built-ins. Unknown metadata renders as unknown — never invented.
+
+---
+
+## Running as a service
+
+The systemd user unit runs the Scout MCP server (`scripts/scout.service`):
+
+```bash
+systemctl --user status scout     # active, 127.0.0.1:3210
+journalctl --user -u scout -f     # logs
+systemctl --user restart scout
+```
+
+Enabled with user lingering, so it starts at device boot without login. Never expose the port publicly — reach it over SSH or Tailscale.
+
+---
 
 ## MCP
 
-**Scout as client** (consumes work platforms, Upwork first):
+**Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, OAuth tokens stored encrypted. Upwork is the first work source; the domain never assumes Upwork concepts.
 
-```sh
-scout integrations add Upwork https://mcp.upwork.com/mcp
-scout integrations test Upwork   # capability discovery, read-only
-```
+**Scout as server** — `scout mcp` (stdio) or `scout mcp serve` (Streamable HTTP) exposes domain tools (`get_profile`, `search_opportunities`, `analyze_opportunity`, `prepare_proposal`, `get_pipeline`, `approve_action`, …) to OpenCode, Codex, Claude, and other MCP clients. Same Core, same rules — including approvals.
 
-Only official MCP/API interfaces. No scraping, no private endpoints, no automation that bypasses platform confirmation.
+---
 
-**Scout as server** (drives OpenCode, Codex, Claude, ChatGPT, Cursor):
+## Security and privacy
 
-```sh
-scout mcp              # stdio
-scout mcp serve        # Streamable HTTP on 127.0.0.1:3210
-```
+Everything sensitive stays on your hardware: profile, opportunities, messages, keys, OAuth tokens. Only the evidence needed for a task reaches your chosen LLM; marketplaces receive nothing except approved actions. `SCOUT_DRY_RUN=1` disables external writes. Details: [SECURITY.md](SECURITY.md).
 
-Domain tools: `get_profile`, `search_opportunities`, `discover_opportunities`, `analyze_opportunity`, `match_opportunity`, `prepare_proposal`, `list_applications`, `list_messages`, `get_pipeline`, `list_pending_approvals`, `approve_action`, `reject_action`, `get_status`, plus evidence/sources introspection.
-
-## Scriptable CLI
-
-Every workflow works non-interactively, with `--json` where it matters:
-
-```sh
-scout discover
-scout opportunity show <id> | scout analyze <id> | scout proposal <id>
-scout approvals list && scout approvals approve <id>
-scout ask --json "summarize today's pipeline"
-scout doctor
-scout backup scout.db.bak && scout restore scout.db.bak
-```
-
-## Architecture
-
-```text
-              HUMAN
-                │
-           Scout CLI/TUI ── interactive session + one-shot commands
-                │
-          Scout Core (internal/runtime)
-           ├── Profile/Memory ── SQLite
-           ├── Opportunity engine ── filter → analyze → match → evidence
-           ├── Agent runtime ── ReAct loop, tools, streaming, interrupt
-           │       ├── LLMs (openai/anthropic/deepseek/ollama/compatible)
-           │       └── Integrations (Upwork MCP, generic MCP)
-           └── Scout MCP server ── stdio + Streamable HTTP
-                       ├── OpenCode   ├── Codex   ├── Claude
-```
-
-Design notes (studied the Pi coding agent; adapted, not copied):
-
-- **Event-sourced agent loop** (`agent_start → turn → token/tool events → agent_end`) driving a scrolling transcript with compact tool lines (`◐`/`✓`/`✗`).
-- **Declarative slash-command registry** shared by the session; one-shot CLI calls the same Core.
-- **Session persistence** (SQLite) with resume, history file, and LLM-summarized compacting.
-- **Provider/model registry with in-session switching** (`/model` selector, `/login` for keys).
-- Deliberate divergences from Pi: no alt-screen TUI framework (plain transcript fits SSH + scripting); ReAct tool blocks instead of native function-calling (portable across tiny local models); no extension/plugin system (single binary on a Pi); deterministic matching core instead of model-only judgment.
-
-See [ARCHITECTURE.md](ARCHITECTURE.md), [SECURITY.md](SECURITY.md), [CONFIGURATION.md](CONFIGURATION.md).
-
-## Privacy
-
-Profile, opportunities, and credentials stay in SQLite on your device. Only the evidence needed for a task is sent to your chosen LLM. Nothing reaches a marketplace except through an approved action.
+---
 
 ## Development
 
@@ -175,16 +329,16 @@ Profile, opportunities, and credentials stay in SQLite on your device. Only the 
 go test ./... && go vet ./... && gofmt -l .
 ```
 
+Single Go binary, SQLite, stdlib-first dependencies. One-shot commands, session, and MCP server share `internal/runtime` — no duplicated business rules. See [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md).
+
+---
+
 ## Roadmap
 
-- Upwork OAuth browser flow inside the terminal session
+- In-terminal Upwork OAuth flow
 - Offer/contract/message lifecycle sync where the MCP exposes it
-- Explicit feedback → preference rules (visible, never hidden)
+- Feedback → visible preference rules
 - More legitimate marketplace adapters via MCP
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

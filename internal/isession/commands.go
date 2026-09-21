@@ -39,6 +39,7 @@ func Registry() []*Command {
 		{Name: "help", Description: "Show commands", Handler: cmdHelp},
 		{Name: "status", Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
 		{Name: "profile", Description: "Show profile summary", Handler: cmdProfile},
+		{Name: "evidence", Description: "List citable profile evidence", Handler: cmdEvidence},
 		{Name: "models", Description: "Show model catalog (registry, cached + discovered)", Handler: cmdModels},
 		{Name: "model", Description: "Switch conversation model: /model [provider/model]", ArgHint: "[provider/model]", Handler: cmdModel},
 		{Name: "thinking", Description: "Set reasoning level: /thinking <off|low|medium|high|max>", ArgHint: "<level>", Handler: cmdThinking},
@@ -124,6 +125,22 @@ func cmdProfile(ctx *SessionCtx, args string) error {
 		ctx.Printf("%s:%s", e.Kind, e.Reference)
 	}
 	ctx.Printf(")\nEdit via: scout profile subcommands (see scout profile --help).\n")
+	return nil
+}
+
+func cmdEvidence(ctx *SessionCtx, args string) error {
+	ev, err := ctx.Core.Evidence(20)
+	if err != nil {
+		return err
+	}
+	if len(ev) == 0 {
+		ctx.Printf("No evidence yet. Import a CV: scout profile import <file>\n")
+		return nil
+	}
+	ctx.Printf("EVIDENCE (%d citable items):\n", len(ev))
+	for _, e := range ev {
+		ctx.Printf("  %-12s %-20s %s\n", e.Kind, e.Reference, truncate80(e.Content))
+	}
 	return nil
 }
 
