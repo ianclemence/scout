@@ -10,7 +10,7 @@
 Scout runs the job hunt so you don't have to live in the feed:
 
 - **It watches the market for you.** "Find Go + AI backend work on Upwork under my rates." Scout searches, filters out the noise, and keeps a shortlist.
-- **It tells you why something fits.** Not a score — skills matched, budget fit, scope clarity, client signals, risks, and the exact profile evidence behind each claim.
+- **It tells you why something fits.** Not a score — skills matched, budget fit, scope clarity, client signals, risks, and the exact resume material behind each claim.
 - **It drafts the proposal.** Grounded in your real projects, tailored to the posting, with questions for the client. Never generic, never invented experience.
 - **It asks before anything consequential.** Submitting, spending Connects, messaging a client, accepting an offer — every one waits for your explicit approval, with the full context to decide.
 - **It tracks the pipeline.** Discovered → analyzed → proposed → submitted → replied → interview → offer. You always know what needs attention.
@@ -24,7 +24,7 @@ You describe what you want in plain language, in your terminal. Scout does the r
 Most "auto-apply bots" treat your accounts like a slot machine: spray applications, burn credits, risk your reputation and your standing. Scout is built on the opposite rule: **the model drafts, the human decides.**
 
 - **Consequential actions are records, not side effects.** Submit, spend, send, accept, fund — each becomes a pending approval with its risk level. Unknown risk fails closed.
-- **Every claim cites evidence.** A proposal sentence exists because a CV section, project, or portfolio item backs it. Unsupported claims never ship as facts.
+- **Every claim traces to your resume.** A proposal sentence exists because a CV section, project, or portfolio item backs it. Unsupported claims never ship as facts.
 - **Your data stays on your machine.** Profile, opportunities, keys, and history live in SQLite on your hardware. Cloud models are optional intelligence; local Ollama keeps working offline.
 - **Official integrations only.** Scout talks to work sources through their official MCPs/APIs — no scraping, no private endpoints, no platform-rule evasion.
 
@@ -123,10 +123,10 @@ Back in the session:
 scout› /profile
 Profile: Ian Clemence — Senior Go Developer
 Skills: go, postgres, docker, react, …
-Evidence items: 1 (latest: cv_section:my-cv.txt)
+Resume items: 1 (latest: cv_section:my-cv.txt)
 ```
 
-Your CV becomes **evidence**. The structured profile is the source of truth Scout reasons from. Set your floor so Scout can filter for you — minimum budget, excluded work, max Connects per application (edit via `scout profile`, or the config file).
+Your CV becomes the record Scout reasons from. The structured profile is the source of truth. Set your floor so Scout can filter for you — minimum budget, excluded work, max Connects per application (edit via `scout profile`, or the config file).
 
 ### 6. Bring a job posting
 
@@ -163,9 +163,9 @@ Or conversationally: *"Why does this one fit me, and what's the weakest part of 
 ```text
 scout› /proposal 1
 PROPOSAL DRAFT
-[tailored draft citing your Go/Postgres/Docker evidence,
+[tailored draft grounded in your Go/Postgres/Docker background,
  ending with sharp client questions]
-Evidence: <ids>   Rate 0 hourly
+Based on: <ids>   Rate 0 hourly
 ```
 
 Inspect what's citable: `/cv` shows your resume content and the items a proposal may cite. If a claim isn't supported, it doesn't go in.
@@ -318,7 +318,7 @@ Enabled with user lingering, so it starts at device boot without login. Never ex
 
 ## Security and privacy
 
-Everything sensitive stays on your hardware: profile, opportunities, messages, keys, OAuth tokens. Only the evidence needed for a task reaches your chosen LLM; marketplaces receive nothing except approved actions. `SCOUT_DRY_RUN=1` disables external writes. Details: [SECURITY.md](docs/SECURITY.md).
+Everything sensitive stays on your hardware: profile, opportunities, messages, keys, OAuth tokens. Only the resume material needed for a task reaches your chosen LLM; marketplaces receive nothing except approved actions. `SCOUT_DRY_RUN=1` disables external writes. Details: [SECURITY.md](docs/SECURITY.md).
 
 ---
 

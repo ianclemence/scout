@@ -27,11 +27,11 @@ func profileCmd(c *runtime.Core, args []string) error {
 		if err != nil {
 			return err
 		}
-		p, ev, err := profile.ImportDocument(c.DB, filepath.Base(args[1]), raw)
+		p, _, err := profile.ImportDocument(c.DB, filepath.Base(args[1]), raw)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("imported %s: %d skills, %d evidence\n", p.DisplayName, len(p.Skills), len(ev))
+		fmt.Printf("Imported CV for %s — %d skills detected, resume stored.\n", p.DisplayName, len(p.Skills))
 		return nil
 	}
 	return fmt.Errorf("usage: scout profile [show|import <file>]")

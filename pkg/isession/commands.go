@@ -124,11 +124,11 @@ func cmdProfile(ctx *SessionCtx, args string) error {
 		if err != nil {
 			return err
 		}
-		p, ev, err := profile.ImportDocument(ctx.Core.DB, filepath.Base(f[1]), raw)
+		p, _, err := profile.ImportDocument(ctx.Core.DB, filepath.Base(f[1]), raw)
 		if err != nil {
 			return err
 		}
-		ctx.Printf("Imported %s: %d skills, %d evidence items. Review with /profile and /cv.\n", p.DisplayName, len(p.Skills), len(ev))
+		ctx.Printf("Imported CV for %s — %d skills detected, resume stored. Review with /profile and /cv.\n", p.DisplayName, len(p.Skills))
 		return nil
 	}
 	p, err := ctx.Core.Profile()
@@ -142,7 +142,7 @@ func cmdProfile(ctx *SessionCtx, args string) error {
 		ctx.Printf("Excluded: %s\n", strings.Join(p.ExcludedWork, ", "))
 	}
 	ev, _ := ctx.Core.Evidence(5)
-	ctx.Printf("Evidence items: %d (latest: ", len(ev))
+	ctx.Printf("Resume items: %d (latest: ", len(ev))
 	for i, e := range ev {
 		if i > 0 {
 			ctx.Printf(", ")
@@ -159,10 +159,10 @@ func cmdCV(ctx *SessionCtx, args string) error {
 		return err
 	}
 	if len(ev) == 0 {
-		ctx.Printf("No evidence yet. Import a CV: scout profile import <file>\n")
+		ctx.Printf("No resume content yet. Import a CV: /profile import <file>\n")
 		return nil
 	}
-	ctx.Printf("CV — resume content and citable items (%d):\n", len(ev))
+	ctx.Printf("CV — resume content and supporting items (%d):\n", len(ev))
 	for _, e := range ev {
 		ctx.Printf("  %-12s %-20s %s\n", e.Kind, e.Reference, truncate80(e.Content))
 	}
@@ -269,7 +269,7 @@ func cmdProposal(ctx *SessionCtx, args string) error {
 	if err != nil {
 		return err
 	}
-	ctx.Printf("\nPROPOSAL DRAFT\n\n%s\n\nEvidence: %s\nRate %.0f %s\n[approve: /approvals once you request submission]\n",
+	ctx.Printf("\nPROPOSAL DRAFT\n\n%s\n\nBased on: %s\nRate %.0f %s\n[approve: /approvals once you request submission]\n",
 		pr.CoverLetter, strings.Join(pr.EvidenceIDs, ", "), pr.Rate, pr.RateType)
 	return nil
 }
