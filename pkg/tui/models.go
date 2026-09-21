@@ -217,7 +217,7 @@ func (u *modelPickerUI) view(width int) string {
 		b.WriteString(styleModelScopeWarn.Render("No providers configured — showing all known models. Use /login to add providers.") + "\n")
 	}
 	b.WriteString("\n")
-	b.WriteString(styleModelSearch.Render(u.search) + "\n\n")
+	b.WriteString(searchField(u.search, "search models…", "") + "\n\n")
 
 	if u.errMsg != "" {
 		for _, ln := range strings.Split(u.errMsg, "\n") {

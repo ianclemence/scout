@@ -63,6 +63,7 @@ var (
 	styleModelScopeInactive = lipgloss.NewStyle().Foreground(cMuted)
 	styleModelScopeWarn     = lipgloss.NewStyle().Foreground(cGold)
 	styleModelSearch        = lipgloss.NewStyle().Foreground(cInk)
+	styleSearchPlaceholder  = lipgloss.NewStyle().Foreground(cFaint)
 	styleModelEnabled       = lipgloss.NewStyle().Foreground(cAccent)
 	styleModelCurrent       = lipgloss.NewStyle().Foreground(cAccent)
 	styleModelUnavail       = lipgloss.NewStyle().Foreground(cMuted).Strikethrough(true)

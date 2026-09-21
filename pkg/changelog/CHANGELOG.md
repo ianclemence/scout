@@ -3,6 +3,17 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.3] - 2026-09-22
+
+Visible search fields everywhere.
+
+- **Every search input now shows where you are typing.** Model picker, list
+  pickers (`/sessions`, `/opportunities`, `/applications`, `/sources`,
+  `/approvals`, `/skills`, `/tools`), and the login/logout provider lists share
+  one search field: a prompt glyph (`›`) and a dim placeholder
+  ("type to filter…") when empty, replaced by your query with a cursor block.
+  The field is never a blank line, so it is always clear it accepts input.
+
 ## [0.13.2] - 2026-09-22
 
 Session history on open, and consistent styled command output.

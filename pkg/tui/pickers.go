@@ -44,7 +44,10 @@ type listPickerUI struct {
 	items    []pickItem
 	filtered []pickItem
 	search   string
-	cur      int
+	// searchPlaceholder is the dim hint shown when the query is empty, so the
+	// field reads as an editable input rather than a blank line.
+	searchPlaceholder string
+	cur               int
 	// act is invoked with the chosen value. It may return a message to print.
 	act func(value string) string
 	// secondary, when set, is bound to Ctrl+S (e.g. "set as default").
@@ -53,7 +56,7 @@ type listPickerUI struct {
 }
 
 func newListPicker(title, status, footer string, items []pickItem, act func(string) string) *listPickerUI {
-	u := &listPickerUI{title: title, status: status, footer: footer, items: items, act: act}
+	u := &listPickerUI{title: title, status: status, footer: footer, items: items, act: act, searchPlaceholder: "type to filter…"}
 	u.rebuild()
 	return u
 }
@@ -168,7 +171,7 @@ func (u *listPickerUI) view(width int) string {
 	}
 	b.WriteString("\n")
 	search := u.search
-	b.WriteString(styleModelSearch.Render("  "+search) + "\n")
+	b.WriteString(searchField(search, u.searchPlaceholder, "  ") + "\n")
 	b.WriteString("\n")
 	if len(u.filtered) == 0 {
 		b.WriteString(stylePaletteNoMatch.Render("  No matches") + "\n")
