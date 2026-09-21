@@ -3,6 +3,34 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.0] - 2026-09-21
+
+Terminal interactivity and self-update release.
+
+### Interactive terminal commands
+Commands now open real selectors instead of printing text:
+- **`/thinking`** opens a reasoning-level picker (current level marked, each level described, type-to-filter). `/thinking <level>` sets directly and validates, listing the available levels on a bad value.
+- **`/sessions`** and **`/resume`** open a searchable session picker; Enter switches session in place.
+- **`/approvals`** opens an approval picker: Enter approves, Ctrl+R rejects — the trust boundary without typing an id.
+
+### Verified, user-scoped updates
+`scout update` installs a verified release and never builds in place:
+- targets: `--self`, `--models`, `--all`, `--check`, `--notes`, `--force`, `--dry-run`, `--channel release|dev`, `--version V`
+- resolves the tag, downloads the asset, verifies sha256, smoke-tests, then atomically swaps the binary and restarts the user service
+- skips when already current; `--channel dev` builds the local checkout with the version injected (no more `dev`)
+- no sudo: installs to `~/.local/bin` and uses `systemctl --user`
+
+### What's new
+Embeds a changelog and shows only unseen entries on the first launch after an update; `/changelog` reprints them.
+
+### Also
+- `/login` offers account and API-key methods (matching the reference UI)
+- model roles collapsed to `conversation` + `worker` (worker inherits the session model)
+- model picker offers only configured providers
+- idle footer justified as `/ commands … esc quit`
+
+Full history: git log v0.6.0..v0.7.0
+
 ## [0.6.0] - 2026-09-21
 
 Terminal interaction release.

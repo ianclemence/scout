@@ -45,12 +45,14 @@ func LastSeen(dataDir string) string {
 	return strings.TrimSpace(string(b))
 }
 
-// MarkSeen records that the given version's notes have been shown.
+// MarkSeen records that the given version's notes have been shown. The base
+// version is stored so a dev build ("0.7.0-3-gabc") is not later mistaken for
+// a distinct release.
 func MarkSeen(dataDir, version string) error {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(markPath(dataDir), []byte(selfupdate.NormalizeVersion(version)+"\n"), 0o600)
+	return os.WriteFile(markPath(dataDir), []byte(selfupdate.BaseVersion(version)+"\n"), 0o600)
 }
 
 // NewSince returns the entries the user has not yet seen, given the current

@@ -275,15 +275,29 @@ func ParseChangelog(md string) []ChangelogEntry {
 	return out
 }
 
+// BaseVersion strips any git suffix ("-6-gabc1234", "-dirty", build
+// metadata) from a version string, returning just the leading x.y.z. It lets a
+// marker recorded from a dev build ("0.6.0-6-gfa001e0") still match the
+// "0.6.0" changelog entry.
+func BaseVersion(s string) string {
+	s = NormalizeVersion(s)
+	if maj, min, pat, _, ok := parseSemver(s); ok {
+		return fmt.Sprintf("%d.%d.%d", maj, min, pat)
+	}
+	return s
+}
+
 // NewEntries returns the entries newer than lastSeen (exclusive), newest
-// first. When lastSeen is empty, all entries are returned.
+// first. When lastSeen is empty, all entries are returned. Comparison is by
+// base version, so a dev-build marker does not resurrect already-seen notes.
 func NewEntries(entries []ChangelogEntry, lastSeen string) []ChangelogEntry {
-	if lastSeen == "" {
+	if strings.TrimSpace(lastSeen) == "" {
 		return entries
 	}
+	base := BaseVersion(lastSeen)
 	var out []ChangelogEntry
 	for _, e := range entries {
-		if e.Version == NormalizeVersion(lastSeen) {
+		if e.Version == base {
 			break
 		}
 		out = append(out, e)
