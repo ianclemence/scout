@@ -67,7 +67,7 @@ This is the whole journey on a fresh machine. Each step builds on the last. The 
 ```bash
 git clone https://github.com/ianclemence/scout.git
 cd scout
-go build -o ~/.local/bin/scout ./cmd/scout
+make install
 ```
 
 `~/.local/bin` is on `PATH` on a standard Pi. From here on, `scout` works anywhere.
@@ -272,7 +272,7 @@ Anything without a slash is a request to the agent. Piped (non-TTY) input falls 
 
 Precedence: **defaults < config file < environment**. User data lives in SQLite.
 
-Config file `~/.config/scout/config.json` (or `$SCOUT_CONFIG`) sets addresses, data dir, Ollama host, dry-run, and per-role models (`screening`, `analysis`, `proposal`, `conversation`, `deep_analysis`). See [CONFIGURATION.md](CONFIGURATION.md).
+Config file `~/.config/scout/config.json` (or `$SCOUT_CONFIG`) sets addresses, data dir, Ollama host, dry-run, and per-role models (`screening`, `analysis`, `proposal`, `conversation`, `deep_analysis`). See [CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ### Providers and models
 
@@ -316,26 +316,19 @@ Enabled with user lingering, so it starts at device boot without login. Never ex
 
 ## Security and privacy
 
-Everything sensitive stays on your hardware: profile, opportunities, messages, keys, OAuth tokens. Only the evidence needed for a task reaches your chosen LLM; marketplaces receive nothing except approved actions. `SCOUT_DRY_RUN=1` disables external writes. Details: [SECURITY.md](SECURITY.md).
+Everything sensitive stays on your hardware: profile, opportunities, messages, keys, OAuth tokens. Only the evidence needed for a task reaches your chosen LLM; marketplaces receive nothing except approved actions. `SCOUT_DRY_RUN=1` disables external writes. Details: [SECURITY.md](docs/SECURITY.md).
 
 ---
 
 ## Development
 
 ```sh
-go test ./... && go vet ./... && gofmt -l .
+make test && make vet && make fmt
 ```
 
-Single Go binary, SQLite, stdlib-first dependencies. One-shot commands, session, and MCP server share `internal/runtime` — no duplicated business rules. See [ARCHITECTURE.md](ARCHITECTURE.md), [CONTRIBUTING.md](CONTRIBUTING.md), [CHANGELOG.md](CHANGELOG.md).
+Single Go binary, SQLite, stdlib-first dependencies. One-shot commands, session, and MCP server share `pkg/runtime` — no duplicated business rules. See [ARCHITECTURE.md](docs/ARCHITECTURE.md), [CONTRIBUTING.md](docs/CONTRIBUTING.md).
 
 ---
-
-## Roadmap
-
-- In-terminal Upwork OAuth flow
-- Offer/contract/message lifecycle sync where the MCP exposes it
-- Feedback → visible preference rules
-- More legitimate marketplace adapters via MCP
 
 ## License
 

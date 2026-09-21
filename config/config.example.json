@@ -1,0 +1,13 @@
+{
+  "addr": "127.0.0.1:3210",
+  "data_dir": "",
+  "ollama_host": "http://127.0.0.1:11434",
+  "dry_run": false,
+  "models": {
+    "screening": { "provider": "ollama", "model": "qwen3:0.6b" },
+    "analysis": { "provider": "ollama", "model": "qwen3:0.6b" },
+    "proposal": { "provider": "ollama", "model": "qwen3:0.6b" },
+    "conversation": { "provider": "ollama", "model": "qwen3:0.6b" },
+    "deep_analysis": { "provider": "ollama", "model": "qwen3:0.6b" }
+  }
+}

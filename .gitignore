@@ -9,6 +9,7 @@
 /scout-*
 /bin/
 /dist/
+/build/
 *.log
 *.pdf
 cv*.txt

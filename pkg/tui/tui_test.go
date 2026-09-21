@@ -1,0 +1,251 @@
+package tui
+
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/ianclemence/scout/pkg/config"
+	"github.com/ianclemence/scout/pkg/csession"
+	"github.com/ianclemence/scout/pkg/isession"
+	"github.com/ianclemence/scout/pkg/runtime"
+	"github.com/ianclemence/scout/pkg/store"
+)
+
+func timeNow() time.Time { return time.Now() }
+
+func TestRenderMarkdown(t *testing.T) {
+	out := RenderMarkdown("# Title\n\nSome **bold** and `code` text.\n\n- item one\n- item two\n\n```go\nfmt.Println()\n```\n\n> quoted")
+	if !strings.Contains(out, "Title") || !strings.Contains(out, "bold") || !strings.Contains(out, "code") {
+		t.Fatalf("lost content: %q", out)
+	}
+	if strings.Contains(out, "**") || strings.Contains(out, "# Title") {
+		t.Fatalf("markup not rendered: %q", out)
+	}
+	if RenderMarkdown("plain") != "plain" {
+		t.Fatal("plain text altered")
+	}
+}
+
+func TestRenderEntryKinds(t *testing.T) {
+	m := &model{width: 80, st: &isession.ReplState{Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}}
+	render := func(e entry) string { return m.renderEntry(e) }
+	for _, e := range []entry{
+		{kind: eUser, text: "hi"},
+		{kind: eScout, text: "hello **there**"},
+		{kind: eTool, text: "search"},
+		{kind: eNotice, text: "note"},
+		{kind: eApproval, text: "approve me"},
+		{kind: eErr, text: "boom"},
+	} {
+		if s := render(e); s == "" {
+			t.Fatalf("empty render for kind %d", e.kind)
+		}
+	}
+	if s := render(entry{kind: eApproval, text: "x"}); !strings.Contains(s, "◆") {
+		t.Fatal("approval must be prominent")
+	}
+	if s := render(entry{kind: eScout, text: "hi"}); !strings.Contains(s, "👷 Scout") {
+		t.Fatal("assistant label must carry the builder mark")
+	}
+}
+
+func TestTruncateWrap(t *testing.T) {
+	if truncate("abcdef", 4) != "abc…" {
+		t.Fatal("truncate wrong")
+	}
+	if len(wrap("abcdefghij", 4)) != 3 {
+		t.Fatal("wrap wrong")
+	}
+}
+
+func keyRunes(s string) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+}
+
+func TestPaletteSlashFlow(t *testing.T) {
+	m := testModel()
+	m.width, m.height, m.ready = 80, 24, true
+	// Type "/": slash stays visible, palette opens unfiltered.
+	nm, _ := m.handleKey(keyRunes("/"))
+	m = nm.(*model)
+	if m.ta.Value() != "/" {
+		t.Fatalf("slash must stay visible, got %q", m.ta.Value())
+	}
+	if m.sel == nil || m.selMode != "palette" {
+		t.Fatal("palette should open")
+	}
+	if len(m.sel.items) == 0 {
+		t.Fatal("unfiltered palette should list commands")
+	}
+	// Type "mod": palette filters.
+	for _, r := range []string{"m", "o", "d"} {
+		nm, _ := m.handleKey(keyRunes(r))
+		m = nm.(*model)
+	}
+	if m.palFilter != "mod" {
+		t.Fatalf("filter = %q", m.palFilter)
+	}
+	for _, it := range m.sel.items {
+		if !strings.HasPrefix(strings.TrimPrefix(it.label, "/"), "mod") {
+			t.Fatalf("unfiltered item %q", it.label)
+		}
+	}
+	// Backspace all the way: palette dismisses, composer keeps "".
+	for i := 0; i < 4; i++ {
+		nm, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = nm.(*model)
+	}
+	if m.sel != nil {
+		t.Fatal("palette should dismiss when slash erased")
+	}
+	if m.ta.Value() != "" {
+		t.Fatalf("composer should be empty, got %q", m.ta.Value())
+	}
+}
+
+func testModel() *model {
+	st := &isession.ReplState{Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}
+	m := initialModel(st)
+	m.width, m.height, m.ready = 80, 24, true
+	return m
+}
+
+func TestComposerRules(t *testing.T) {
+	m := testModel()
+	idle := m.composerTopRule()
+	if !strings.Contains(idle, "──") {
+		t.Fatal("idle composer must be a plain rule")
+	}
+	m.working = true
+	m.turnFrom = timeNow()
+	w := m.composerTopRule()
+	if !strings.Contains(w, "Working") && !strings.Contains(w, "──") {
+		t.Fatalf("working rule must carry status: %q", w)
+	}
+}
+
+func TestWelcomeCard(t *testing.T) {
+	m := testModel()
+	card := m.welcomeCard()
+	for _, want := range []string{"S C O U T", "Find work worth doing.", "/help", "/model"} {
+		if !strings.Contains(card, want) {
+			t.Fatalf("welcome card missing %q", want)
+		}
+	}
+}
+
+func TestApprovalCard(t *testing.T) {
+	m := testModel()
+	m.approval = &pendingApproval{id: "a1", title: "submit_proposal → opp-1", risk: "high"}
+	card := m.approvalCard()
+	for _, want := range []string{"Approval required", "high", "[1] approve", "[2] reject"} {
+		if !strings.Contains(card, want) {
+			t.Fatalf("approval card missing %q", want)
+		}
+	}
+}
+
+func TestFooter(t *testing.T) {
+	m := testModel()
+	if s := m.footerStats(); !strings.Contains(s, "ollama/qwen3:0.6b") || !strings.Contains(s, "local") {
+		t.Fatalf("footer must show locality + model: %q", s)
+	}
+	if s := m.footerKeys(); !strings.Contains(s, "/ commands") {
+		t.Fatalf("footer keys missing: %q", s)
+	}
+}
+
+func TestAutoName(t *testing.T) {
+	if got := autoName("  Find me Go backend work please  "); got != "Find me Go backend work please" {
+		t.Fatalf("bad name: %q", got)
+	}
+	if got := autoName(strings.Repeat("x", 100)); len([]rune(got)) > 41 {
+		t.Fatalf("name not capped: %q", got)
+	}
+}
+
+func TestSwitchSession(t *testing.T) {
+	core := testCore(t)
+	a, _ := csession.Create(core.DB, "aaa", "ollama", "m")
+	b, _ := csession.Create(core.DB, "bbb", "ollama", "m")
+	_ = csession.AppendMessages(core.DB, b.ID, []csession.Message{{Role: "user", Content: "hi b"}})
+	st := &isession.ReplState{Core: core, Sess: a}
+	m := initialModel(st)
+	if err := m.switchSession(b); err != nil {
+		t.Fatal(err)
+	}
+	if m.st.Sess.ID != b.ID || len(m.st.History) != 1 || m.st.History[0].Content != "hi b" {
+		t.Fatal("session switch must swap identity + history")
+	}
+}
+
+func testCore(t *testing.T) *runtime.Core {
+	t.Helper()
+	cfg := config.Default()
+	cfg.DataDir = t.TempDir()
+	db, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	c, err := runtime.New(cfg, db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+func TestAuthDialogFlow(t *testing.T) {
+	core := testCore(t)
+	st := &isession.ReplState{Core: core, Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}
+	m := initialModel(st)
+	m.width, m.ready = 80, true
+	// /login deepseek opens the masked dialog, not cooked output.
+	nm, _ := m.runCommand("login deepseek")
+	m = nm.(*model)
+	if m.auth == nil || m.auth.provider != "deepseek" {
+		t.Fatal("auth dialog should open")
+	}
+	if card := m.authCard(); !strings.Contains(card, "Login to DeepSeek") || !strings.Contains(card, "esc to cancel") {
+		t.Fatalf("bad dialog card: %q", card)
+	}
+	// Esc cancels without storing.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = nm.(*model)
+	if m.auth != nil {
+		t.Fatal("esc should close dialog")
+	}
+	if _, err := core.LoadSecret("llm:deepseek"); err == nil {
+		t.Fatal("cancelled login must not store")
+	}
+	// Unknown provider rejected.
+	nm, _ = m.runCommand("login nope")
+	m = nm.(*model)
+	if m.auth != nil {
+		t.Fatal("unknown provider must not open dialog")
+	}
+}
+
+func TestLogoutListsStoredOnly(t *testing.T) {
+	core := testCore(t)
+	st := &isession.ReplState{Core: core, Sess: &csession.Session{}}
+	m := initialModel(st)
+	m.width, m.ready = 80, true
+	if err := core.SaveSecret("llm:openai", "k"); err != nil {
+		t.Fatal(err)
+	}
+	nm, _ := m.runCommand("logout")
+	m = nm.(*model)
+	if m.sel == nil || m.selMode != "logout" || len(m.sel.items) != 1 {
+		t.Fatalf("logout should list stored only: %+v", m.sel)
+	}
+	nm, _ = m.removeStoredKey("openai")
+	m = nm.(*model)
+	if _, err := core.LoadSecret("llm:openai"); err == nil {
+		t.Fatal("key should be removed")
+	}
+}
