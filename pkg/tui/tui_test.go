@@ -245,7 +245,21 @@ func TestLoginStagedFlow(t *testing.T) {
 	if v := m.login.view(80); !strings.Contains(v, "Select authentication method") {
 		t.Fatalf("method stage missing: %q", v)
 	}
-	// Enter on the API-key method moves to the provider stage and lists providers.
+	// Both methods are offered, account first (matching the reference UI).
+	if len(m.login.methods) != 2 || m.login.methods[0].authType != "account" || m.login.methods[1].authType != "api_key" {
+		t.Fatalf("method list wrong: %+v", m.login.methods)
+	}
+	// Account sign-in has no providers yet: it stays on the method stage and
+	// explains why instead of opening an empty list.
+	nm, cmd := m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = nm.(*model)
+	if m.login == nil || m.login.stage != loginStageMethod || cmd == nil {
+		t.Fatalf("account method should stay on the method stage with a notice: %+v", m.login)
+	}
+	// Move down to "Sign in with an API key" and Enter: the provider stage
+	// opens and lists providers.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = nm.(*model)
 	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m = nm.(*model)
 	if m.login.stage != loginStageProvider || len(m.login.providers) == 0 {

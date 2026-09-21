@@ -20,6 +20,21 @@ var loginProviderIDs = []string{"openai", "anthropic", "deepseek", "moonshot"}
 func cmdLogin(ctx *SessionCtx, args string) error {
 	p := strings.ToLower(firstField(args))
 	if p == "" {
+		// Stage 1: authentication method, mirroring the TUI and the
+		// reference agents.
+		ctx.Printf("Select authentication method:\n")
+		ctx.Printf("  1  Sign in with an account\n")
+		ctx.Printf("  2  Sign in with an API key\n")
+		ctx.Printf("Choice: ")
+		method, err := readLineCooked()
+		if err != nil || strings.TrimSpace(method) == "" {
+			return nil
+		}
+		if strings.TrimSpace(method) == "1" {
+			ctx.Printf("No account sign-in providers are available yet — choose \"Sign in with an API key\".\n")
+			return nil
+		}
+		// Stage 2: provider.
 		ctx.Printf("Select provider to configure (number):\n")
 		for i, id := range loginProviderIDs {
 			ctx.Printf("  %2d  %-10s %s\n", i+1, id, loginProviderState(ctx, id))

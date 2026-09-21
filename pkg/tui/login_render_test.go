@@ -25,11 +25,15 @@ func TestLoginViewRendersScoutPalette(t *testing.T) {
 		t.Fatal("login flow did not open")
 	}
 	v := m.View()
-	if !strings.Contains(v, "Select authentication method") || !strings.Contains(v, "Sign in with an API key") {
-		t.Fatalf("method stage not rendered:\n%s", v)
+	if !strings.Contains(v, "Select authentication method") ||
+		!strings.Contains(v, "Sign in with an account") ||
+		!strings.Contains(v, "Sign in with an API key") {
+		t.Fatalf("method stage must offer both methods:\n%s", v)
 	}
 
-	// Enter -> provider stage.
+	// Move to "Sign in with an API key" and Enter -> provider stage.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = nm.(*model)
 	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
 	m = nm.(*model)
 	v = m.View()

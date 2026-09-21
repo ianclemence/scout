@@ -33,9 +33,11 @@ const (
 )
 
 // loginMethod is one authentication method in the first-stage selector.
+// The offered set mirrors the reference terminal agents: an account
+// (subscription/OAuth) sign-in and an API-key sign-in.
 type loginMethod struct {
 	label    string
-	authType string // "api_key" or "account"
+	authType string // "account" or "api_key"
 }
 
 // authProvider is a provider entry in the provider selector.
@@ -69,13 +71,29 @@ type loginFlowUI struct {
 	modeLogout bool
 }
 
+// Authentication-method labels, kept in one place so the terminal, docs, and
+// any future surface agree.
+const (
+	loginMethodAccount = "Sign in with an account"
+	loginMethodAPIKey  = "Sign in with an API key"
+)
+
 func newLoginFlow() *loginFlowUI {
 	return &loginFlowUI{
 		stage: loginStageMethod,
 		methods: []loginMethod{
-			{label: "Sign in with an API key", authType: "api_key"},
+			{label: loginMethodAccount, authType: "account"},
+			{label: loginMethodAPIKey, authType: "api_key"},
 		},
 	}
+}
+
+// hasAccountProviders reports whether any provider offers account (OAuth /
+// subscription) sign-in. None do today; the method selector still offers the
+// choice so the surface matches the reference agents and gains OAuth without
+// a UI change.
+func hasAccountProviders(core *runtime.Core) bool {
+	return len(loginProviders(core, "account")) > 0
 }
 
 func (f *loginFlowUI) openProviderStage(core *runtime.Core, authType string, initialSearch string) {
@@ -228,7 +246,7 @@ func (f *loginFlowUI) view(width int) string {
 	b.WriteString(rule + "\n")
 	switch f.stage {
 	case loginStageMethod:
-		b.WriteString(" " + styleModalTitle.Render("Select authentication method") + "\n\n")
+		b.WriteString(" " + styleModalTitle.Render("Select authentication method:") + "\n\n")
 		for i, mth := range f.methods {
 			line := "  " + mth.label
 			if i == f.mCur {
@@ -288,14 +306,30 @@ func (f *loginFlowUI) providerList() string {
 
 // ---------- provider catalogs ----------
 
-// loginProviders builds the provider catalog with live status, optionally
-// filtered to one auth type.
+// accountProviders lists providers that support account (OAuth/subscription)
+// sign-in. Scout's providers are API-key only today, so this is empty; it is
+// the single seam a future OAuth provider plugs into, and the method selector
+// reads it rather than hard-coding the answer.
+var accountProviders = map[string]bool{}
+
+// loginProviders builds the provider catalog with live status, filtered to
+// the requested authentication method.
 func loginProviders(core *runtime.Core, authType string) []authProvider {
 	var out []authProvider
 	ctx := bg()
 	for _, ps := range core.ProviderStatus(ctx) {
 		if ps.Provider == "ollama" {
 			continue // local, no credential
+		}
+		// Only list providers that support the chosen method, so an account
+		// sign-in never offers an API-key-only provider (and vice versa),
+		// matching how the reference agents gate the two lists. An empty
+		// authType means "any", used by the logout view.
+		if authType == "account" && !accountProviders[ps.Provider] {
+			continue
+		}
+		if authType == "api_key" && accountProviders[ps.Provider] {
+			continue
 		}
 		status := "unconfigured"
 		ok := ps.Configured
@@ -304,9 +338,6 @@ func loginProviders(core *runtime.Core, authType string) []authProvider {
 			status = strings.TrimPrefix(strings.TrimPrefix(ps.Detail, "key in "), "")
 		case ps.Configured:
 			status = "configured"
-		}
-		if authType != "" && authType != "api_key" {
-			continue
 		}
 		out = append(out, authProvider{
 			id:       ps.Provider,

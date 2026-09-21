@@ -308,7 +308,7 @@ func (m *model) footerKeys() string {
 	case m.working:
 		keys = "esc aborts · / commands"
 	default:
-		keys = "/ commands · tab complete · ctrl+l model · ctrl+p cycle · esc quit"
+		keys = "/ commands · esc quit"
 	}
 	return styleFooterHint.Render(cellTruncate(keys, m.width))
 }

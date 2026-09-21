@@ -59,6 +59,12 @@ func (m *model) handleLoginKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.login = nil
 		return m.removeStoredKey(res.logout)
 	case res.moveTo != nil && *res.moveTo == loginStageProvider && res.method != "":
+		// Account sign-in has no providers yet; say so plainly and return to
+		// the method selector rather than showing an empty list.
+		if res.method == "account" && !hasAccountProviders(m.st.Core) {
+			m.login = newLoginFlow()
+			return m, tea.Println(styleNotice.Render("No account sign-in providers are available yet — choose \"Sign in with an API key\"."))
+		}
 		m.login.openProviderStage(m.st.Core, res.method, "")
 		return m, nil
 	case res.moveTo != nil && *res.moveTo == loginStageMethod:
