@@ -5,8 +5,8 @@
 *.db-wal
 *.db-shm
 .masterkey
-scout
-scout-*
+/scout
+/scout-*
 /bin/
 /dist/
 *.log
