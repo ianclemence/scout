@@ -3,10 +3,29 @@ package runtime
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ianclemence/scout/pkg/redact"
 )
+
+// runIDKey carries the current agent run's id through the context, so a tool
+// execution can tag its full result with the turn that caused it.
+type runIDKey struct{}
+
+func withRunID(ctx context.Context, id string) context.Context {
+	return context.WithValue(ctx, runIDKey{}, id)
+}
+
+func runIDFrom(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(runIDKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
 
 // CheckApproval enforces the permission model: external and financial tools
 // run only with an explicit approved action. Drafts and reads never need it.
@@ -82,6 +101,9 @@ func (c *Core) Execute(ctx context.Context, tool *Tool, args map[string]any) (st
 		return "", fmt.Errorf("tool %q timed out", tool.Name)
 	case r := <-resCh:
 		c.Audit(tool, strArg(args, "source"), strArg(args, "opportunity_id"), approvalID, r.e == nil, summarize(r.s, r.e))
+		if r.e == nil {
+			c.recordToolResult(runIDFrom(tctx), tool.Name, r.s)
+		}
 		return r.s, r.e
 	}
 }
@@ -101,4 +123,27 @@ func summarize(s string, err error) string {
 		return s[:200] + "…"
 	}
 	return s
+}
+
+// toolResultRetention bounds how many full tool results are kept. The audit
+// summary stays short for listing; the full result is kept only so an external
+// evaluator can verify the agent's claims against real evidence. Pruning keeps
+// the table from growing without bound on a long-lived install.
+const toolResultRetention = 500
+
+// recordToolResult stores a tool's full result, then prunes old rows. It is
+// best-effort: evaluation support must never affect a tool's outcome. runID, if
+// set, ties the result to the agent turn that produced it.
+func (c *Core) recordToolResult(runID, tool, result string) {
+	if strings.TrimSpace(result) == "" {
+		return
+	}
+	// Cap a single result so one huge payload cannot bloat a row without bound.
+	const maxResult = 256 * 1024
+	if len(result) > maxResult {
+		result = result[:maxResult] + "\n[truncated at 256KB for storage]"
+	}
+	_, _ = c.DB.DB.Exec(`INSERT INTO tool_results(id,created_at,tool,result,run_id) VALUES(?,?,?,?,?)`, newID("toolres"), now(), tool, result, runID)
+	// Prune beyond the retention window.
+	_, _ = c.DB.DB.Exec(`DELETE FROM tool_results WHERE id NOT IN (SELECT id FROM tool_results ORDER BY created_at DESC LIMIT ?)`, toolResultRetention)
 }

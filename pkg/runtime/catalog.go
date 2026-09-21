@@ -81,14 +81,15 @@ func (c *Core) FullToolCatalog() string {
 // RecordTrajectory stores one agent turn's process: the request, the tools it
 // used, how many turns it took, its final answer, and any error. It is the raw
 // material for evaluation and future learning, and it never contains secrets
-// (summaries are already redacted elsewhere).
-func (c *Core) RecordTrajectory(request string, tools []string, turns int, final string, runErr error) {
+// (summaries are already redacted elsewhere). runID ties the turn to the tool
+// results recorded under the same id.
+func (c *Core) RecordTrajectory(runID, request string, tools []string, turns int, final string, runErr error) {
 	errText := ""
 	if runErr != nil {
 		errText = runErr.Error()
 	}
 	_, _ = c.DB.DB.Exec(`INSERT INTO trajectories(id,created_at,request,tools,turns,final,error) VALUES(?,?,?,?,?,?,?)`,
-		newID("traj"), now(), truncate(strings.Join(strings.Fields(request), " "), 500),
+		runID, now(), truncate(strings.Join(strings.Fields(request), " "), 500),
 		strings.Join(tools, ","), turns, truncate(final, 2000), errText)
 }
 

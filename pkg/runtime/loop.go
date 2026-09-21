@@ -52,6 +52,11 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		think = llm.ThinkOff
 	}
 	emit(Event{Type: "agent_start"})
+	// One run id per agent turn. It ties the trajectory to the tool results
+	// produced for it, so an external evaluator can match evidence to the turn
+	// exactly instead of guessing from timestamps.
+	runID := newID("run")
+	ctx = withRunID(ctx, runID)
 	msgs := append([]llm.Message{}, history...)
 	// Attempt budget: no single tool runs more than N times per turn.
 	// Cheap, deterministic runaway protection on metered APIs and slow hardware.
@@ -70,7 +75,7 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 	// Record the trajectory once, on every exit. This is the raw material for
 	// evaluation and future learning: what was asked, what tools ran, what the
 	// agent produced, and whether it failed.
-	defer func() { c.RecordTrajectory(lastUser, usedTools, turnsUsed, final, runErr) }()
+	defer func() { c.RecordTrajectory(runID, lastUser, usedTools, turnsUsed, final, runErr) }()
 	// Skill selection: built-ins plus the workspace overlay; summaries enter
 	// context, full bodies load on demand.
 	skillBlock := ""

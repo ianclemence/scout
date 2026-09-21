@@ -156,4 +156,18 @@ CREATE TABLE IF NOT EXISTS learned_observations (id TEXT PRIMARY KEY, pattern TE
 	{6, `
 CREATE TABLE IF NOT EXISTS trajectories (id TEXT PRIMARY KEY, created_at TEXT, request TEXT, tools TEXT, turns INTEGER, final TEXT, error TEXT);
 `},
+	{7, `
+-- tool_results keeps the FULL result of a tool call, separately from the
+-- truncated tool_audit.summary. Evaluation (grounding checks) needs the real
+-- evidence, not a 500-char preview; keeping it here bounds growth (retention is
+-- applied on write) without changing runtime behaviour.
+CREATE TABLE IF NOT EXISTS tool_results (id TEXT PRIMARY KEY, created_at TEXT, tool TEXT, result TEXT);
+CREATE INDEX IF NOT EXISTS idx_tool_results_created ON tool_results(created_at);
+`},
+	{8, `
+-- run_id ties a tool result to the agent turn that produced it, so an external
+-- evaluator matches evidence to the turn exactly instead of by timestamp.
+ALTER TABLE tool_results ADD COLUMN run_id TEXT DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_tool_results_run ON tool_results(run_id);
+`},
 }

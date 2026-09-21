@@ -15,10 +15,10 @@ func TestOpenMigrates(t *testing.T) {
 	if err := db.DB.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		t.Fatal(err)
 	}
-	if v != 6 {
-		t.Fatalf("expected user_version=6, got %d", v)
+	if v != 8 {
+		t.Fatalf("expected user_version=8, got %d", v)
 	}
-	for _, tbl := range []string{"opportunities", "proposals", "pending_actions", "sources", "secrets", "users", "sessions", "session_messages", "models_cache"} {
+	for _, tbl := range []string{"opportunities", "proposals", "pending_actions", "sources", "secrets", "users", "sessions", "session_messages", "models_cache", "tool_results"} {
 		var n string
 		if err := db.DB.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, tbl).Scan(&n); err != nil {
 			t.Fatalf("missing table %s", tbl)

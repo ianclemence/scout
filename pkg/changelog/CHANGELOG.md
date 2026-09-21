@@ -3,6 +3,25 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.6] - 2026-09-22
+
+Evaluation substrate and an external Jev evaluation loop.
+
+- **Full tool results are now recoverable for evaluation.** `tool_audit`
+  summaries are truncated to 500 chars, which made external grounding checks
+  meaningless (the same grounded answer scored unsupported=0.07 with the full
+  result and 0.95 with the summary). A bounded `tool_results` table (migration
+  v7; 256 KB/row cap, pruned to 500 rows) stores the full result. Runtime
+  behaviour is unchanged.
+- **Each agent run has a run id** (migration v8): tool results are tagged with
+  the turn that produced them, so an evaluator matches evidence to a run exactly
+  instead of by timestamp.
+- **External evaluator:** `cmd/scout-eval` + `pkg/jeveval` + `scripts/eval-corpus.sh`
+  read Scout's recorded runs, run deterministic checks and grounded Jev
+  questions, store findings, and compare before/after. Scout never imports it;
+  Jev stays out of Scout's runtime. See `docs/EVALUATION.md` and
+  `docs/EVAL-REPORT.md`.
+
 ## [0.13.5] - 2026-09-22
 
 Honest model list, responsive commands.
