@@ -10,7 +10,6 @@ import (
 
 	"github.com/ianclemence/scout/pkg/agent"
 	"github.com/ianclemence/scout/pkg/approve"
-	"github.com/ianclemence/scout/pkg/skills"
 )
 
 // Permission classes, from least to most consequential. The runtime
@@ -200,7 +199,7 @@ func (c *Core) Tools() []*Tool {
 			}},
 		{Name: "load_skill", Permission: PermRead, Description: "Load a skill's full procedure before acting on it.", ArgsHint: `{"name": "evaluate-opportunity"}`, ArgsSchema: map[string]string{"name": "string"}, ReadOnly: true,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
-				reg, err := skills.Load()
+				reg, err := c.SkillRegistry()
 				if err != nil {
 					return "", err
 				}

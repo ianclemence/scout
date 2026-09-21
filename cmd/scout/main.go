@@ -12,6 +12,7 @@ import (
 	"github.com/ianclemence/scout/pkg/store"
 	"github.com/ianclemence/scout/pkg/upwork"
 	"github.com/ianclemence/scout/pkg/version"
+	"github.com/ianclemence/scout/pkg/workspace"
 )
 
 func main() {
@@ -173,6 +174,9 @@ func initCmd() error {
 		return err
 	}
 	_, _ = c.DB.DB.Exec(`INSERT OR IGNORE INTO sources(id,name,kind,endpoint,enabled,capabilities) VALUES('src-upwork','Upwork','mcp',?,1,'')`, upwork.Endpoint)
+	if err := workspace.Init(cfg.DataDir); err != nil {
+		return err
+	}
 	fmt.Println("initialized", cfg.DataDir)
 	return nil
 }

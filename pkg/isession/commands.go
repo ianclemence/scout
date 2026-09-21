@@ -13,7 +13,6 @@ import (
 	"github.com/ianclemence/scout/pkg/domain"
 	"github.com/ianclemence/scout/pkg/profile"
 	"github.com/ianclemence/scout/pkg/runtime"
-	"github.com/ianclemence/scout/pkg/skills"
 )
 
 // Command is a slash command with Scout-specific utility.
@@ -432,7 +431,7 @@ func cmdSources(ctx *SessionCtx, args string) error {
 }
 
 func cmdSkills(ctx *SessionCtx, args string) error {
-	reg, err := skills.Load()
+	reg, err := ctx.Core.SkillRegistry()
 	if err != nil {
 		return err
 	}

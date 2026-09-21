@@ -22,8 +22,10 @@ import (
 	"github.com/ianclemence/scout/pkg/profile"
 	"github.com/ianclemence/scout/pkg/registry"
 	"github.com/ianclemence/scout/pkg/secret"
+	"github.com/ianclemence/scout/pkg/skills"
 	"github.com/ianclemence/scout/pkg/sources"
 	"github.com/ianclemence/scout/pkg/store"
+	"github.com/ianclemence/scout/pkg/workspace"
 )
 
 // Core bundles dependencies for all Scout operations.
@@ -560,6 +562,11 @@ func (c *Core) StoredProviders() []string {
 		out = append(out, strings.TrimPrefix(k, "llm:"))
 	}
 	return out
+}
+
+// SkillRegistry loads built-ins plus the workspace overlay.
+func (c *Core) SkillRegistry() (*skills.Registry, error) {
+	return skills.LoadWithOverlay([]string{workspace.SkillsDir(c.Cfg.DataDir)})
 }
 
 // ---------- sessions helper ----------

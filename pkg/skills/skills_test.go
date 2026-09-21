@@ -1,6 +1,8 @@
 package skills
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -69,6 +71,26 @@ func TestContextBlockBounded(t *testing.T) {
 	}
 	if ContextBlock(nil) != "" {
 		t.Fatal("empty should be empty")
+	}
+}
+
+func TestOverlayAddsAndOverrides(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "my-skill"), 0o700)
+	os.WriteFile(filepath.Join(dir, "my-skill", "SKILL.md"), []byte("# my-skill\n\nRelevance: mytrigger.\n\nBody."), 0o600)
+	os.MkdirAll(filepath.Join(dir, "discover-opportunities"), 0o700)
+	os.WriteFile(filepath.Join(dir, "discover-opportunities", "SKILL.md"), []byte("# discover-opportunities\n\nRelevance: mine.\n\nOverride body."), 0o600)
+	r, err := LoadWithOverlay([]string{dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel := r.Select("mytrigger please", 3)
+	if len(sel) != 1 || sel[0].Name != "my-skill" {
+		t.Fatalf("overlay skill not selected: %v", sel)
+	}
+	s, ok := r.Find("discover-opportunities")
+	if !ok || !strings.Contains(s.Body, "Override body") {
+		t.Fatal("overlay should replace builtin")
 	}
 }
 

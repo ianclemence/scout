@@ -115,6 +115,8 @@ scout profile import ~/my-cv.txt
 scout profile show
 ```
 
+Your data lives outside the repo in `~/.local/share/scout`: the database, your workspace (`workspace/` — owner notes, custom skills, imports), history, and key file. `scout init` creates the workspace from a tracked template once and never overwrites it. None of it is committed to git — see `.gitignore`.
+
 Back in the session:
 
 ```text

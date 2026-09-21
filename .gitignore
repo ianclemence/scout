@@ -1,17 +1,46 @@
-# Scout — never commit
-.env
-.env.*
-*.db
-*.db-wal
-*.db-shm
-.masterkey
+# Scout — what git tracks vs what it must never see.
+#
+# TRACKED: code (cmd/, pkg/), workspace TEMPLATE (pkg/workspace/template/),
+# docs (docs/, README.md), config EXAMPLE (config/config.example.json),
+# scripts, Makefile, go.mod/go.sum, LICENSE.
+#
+# NEVER TRACKED: anything from a live install —
+# - databases (*.db*) and WAL files
+# - secret material (.env*, .masterkey, config.json with keys)
+# - user workspace copies (~/.local/share/scout/workspace — outside the repo)
+# - shell history, CV uploads, logs, build output, binaries
+
+# Binaries and build output
 /scout
 /scout-*
 /bin/
 /dist/
 /build/
+*.exe
+*.test
+
+# Databases (local-first SQLite)
+/*.db
+/*.db-wal
+/*.db-shm
+*.db
+*.db-wal
+*.db-shm
+
+# Secrets & config with keys — the lock must never travel with the safe.
+.env
+.env.*
+.masterkey
+**/.master-key
+config.json
+.secrets.json
+
+# User material that must stay on the device
 *.log
 *.pdf
 cv*.txt
 resume*.txt
+history
+
+# OS
 .DS_Store

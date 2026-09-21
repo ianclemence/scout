@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/ianclemence/scout/pkg/skills"
 )
 
 // Check is one diagnostic result.
@@ -32,7 +30,7 @@ func (c *Core) Doctor(ctx context.Context) []Check {
 	out = append(out, check("anthropic-key", c.HasCredential("ANTHROPIC_API_KEY", "llm:anthropic"), "env or stored"))
 	out = append(out, check("deepseek-key", c.HasCredential("DEEPSEEK_API_KEY", "llm:deepseek"), "env or stored"))
 	out = append(out, check("moonshot-key", c.HasCredential("MOONSHOT_API_KEY", "llm:moonshot"), "env or stored"))
-	if sk, err := skills.Load(); err == nil {
+	if sk, err := c.SkillRegistry(); err == nil {
 		out = append(out, check("skills", true, fmt.Sprintf("%d embedded", len(sk.List()))))
 	} else {
 		out = append(out, check("skills", false, err.Error()))

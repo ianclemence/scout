@@ -13,7 +13,6 @@ import (
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/runtime"
-	"github.com/ianclemence/scout/pkg/skills"
 )
 
 func sessionsCmd(c *runtime.Core, args []string) error {
@@ -35,7 +34,7 @@ func sessionsCmd(c *runtime.Core, args []string) error {
 
 func skillsCmd(c *runtime.Core, args []string) error {
 	_ = c
-	reg, err := skills.Load()
+	reg, err := c.SkillRegistry()
 	if err != nil {
 		return err
 	}

@@ -2,6 +2,8 @@ package skills
 
 import (
 	"embed"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -23,7 +25,13 @@ type Registry struct {
 	skills []Skill
 }
 
-func Load() (*Registry, error) {
+func Load() (*Registry, error) { return loadDirs(nil) }
+
+// LoadWithOverlay adds workspace skills on top of built-ins. Same name
+// replaces the built-in for that install only.
+func LoadWithOverlay(dirs []string) (*Registry, error) { return loadDirs(dirs) }
+
+func loadDirs(overlay []string) (*Registry, error) {
 	entries, err := skillFiles.ReadDir("skilldata")
 	if err != nil {
 		return nil, err
@@ -40,6 +48,36 @@ func Load() (*Registry, error) {
 		s := parseSkill(e.Name(), string(raw))
 		if s.Name != "" {
 			r.skills = append(r.skills, s)
+		}
+	}
+	// Workspace overlay: same layout, user-owned. Same name wins.
+	for _, dir := range overlay {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			raw, err := os.ReadFile(filepath.Join(dir, e.Name(), "SKILL.md"))
+			if err != nil {
+				continue
+			}
+			s := parseSkill(e.Name(), string(raw))
+			if s.Name == "" {
+				continue
+			}
+			replaced := false
+			for i, old := range r.skills {
+				if old.Name == s.Name {
+					r.skills[i] = s
+					replaced = true
+				}
+			}
+			if !replaced {
+				r.skills = append(r.skills, s)
+			}
 		}
 	}
 	sort.Slice(r.skills, func(i, j int) bool { return r.skills[i].Name < r.skills[j].Name })

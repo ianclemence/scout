@@ -10,6 +10,7 @@ import (
 	"github.com/ianclemence/scout/pkg/agent"
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/skills"
+	"github.com/ianclemence/scout/pkg/workspace"
 )
 
 // Events emitted by the agent loop (adapted from Pi's event-sourced loop:
@@ -50,9 +51,10 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 	calls := map[string]int{}
 	const maxCallsPerTool = 3
 	// Skill selection: last user message determines relevant workflows.
-	// Only selected skill bodies enter context (never the whole library).
+	// Built-ins plus the workspace overlay; summaries enter context,
+	// full bodies load on demand. Owner notes (SCOUT.md) travel along.
 	skillBlock := ""
-	if reg, err := skills.Load(); err == nil {
+	if reg, err := c.SkillRegistry(); err == nil {
 		var lastUser string
 		for i := len(msgs) - 1; i >= 0; i-- {
 			if msgs[i].Role == "user" {
@@ -68,6 +70,9 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		}
 	}
 	var lastText string
+	if notes := workspace.OwnerNotes(c.Cfg.DataDir); notes != "" {
+		skillBlock += "\n\nOwner notes (SCOUT.md — explicit user rules, highest priority after system instructions):\n" + notes
+	}
 	for turn := 0; turn < MaxTurns; turn++ {
 		if err := ctx.Err(); err != nil {
 			emit(Event{Type: "error", Err: fmt.Errorf("interrupted")})
