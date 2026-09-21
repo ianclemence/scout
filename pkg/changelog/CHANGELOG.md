@@ -3,6 +3,16 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.1] - 2026-09-21
+
+Command behavior and parity release.
+
+- `/opportunities` opens a picker; Enter offers Analyze fit / Draft proposal / Show detail.
+- `/skills` Enter loads the workflow; `/applications` Enter shows detail.
+- `/changelog` added; bare `/resume` lists then prompts; `/feedback` validates signals.
+- `/thinking` offers the full reference set (off/minimal/low/medium/high/xhigh/max) with per-provider mapping.
+- Approval wording is honest: approving records your decision; external submission needs a connected source.
+
 ## [0.7.0] - 2026-09-21
 
 Terminal interactivity and self-update release.
