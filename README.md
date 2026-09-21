@@ -34,17 +34,13 @@ You get leverage on the boring parts. You keep the authority on everything that 
 
 ## How it works
 
-You express a goal. Scout checks your profile and evidence, runs deterministic filters, reasons about fit, prepares drafts, and files anything consequential as an approval. You approve; Scout executes through the official integration and tracks the outcome.
+You state a goal. Scout checks your profile, finds fitting work, drafts the application — and files anything consequential as an approval for you to decide.
 
 ```
-You → Scout session → profile/evidence → deterministic filters
-    → agent analysis → proposal draft → YOUR APPROVAL
-    → official integration → pipeline tracking → feedback
+You → Scout → fitting work → draft → YOUR APPROVAL → done → tracked
 ```
 
-**One product, three interfaces on one core.** The **interactive session** (`scout`) is the daily driver — talk, review, approve. **One-shot commands** (`scout analyze …`) script the same operations. The **Scout MCP server** lets OpenCode, Codex, or Claude drive the same core. They share `internal/runtime`, so a rule never exists in two places.
-
-**Behavior is layered, not monolithic.** The system prompt sets policy; 18 skills (`scout skills`) define reusable workflows selected per request; 48 tools (`scout tools`) provide typed capabilities under permission classes (`read/analyze/draft/mutate_local/external_action/financial`), with external actions gated on approved approvals and every call audit-logged. Job sources sit behind one `OpportunitySource` interface — adding LinkedIn-style listings later is an adapter exercise, not a rewrite.
+One shared core drives the interactive session, one-shot commands, and the MCP server. Policy lives in the system prompt, workflows in 18 skills, capabilities in 48 permission-gated tools, job sources behind one adapter interface.
 
 ---
 
