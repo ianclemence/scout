@@ -45,13 +45,30 @@ func Default() Config {
 		OllamaHost:  envOr("OLLAMA_HOST", "http://127.0.0.1:11434"),
 		ScoutEnvKey: os.Getenv("SCOUT_MASTER_KEY"),
 		DryRun:      envBool("SCOUT_DRY_RUN", false),
-		Models: map[string]LLMRole{
-			"screening":     {Provider: envOr("SCOUT_MODEL_SCREENING_PROVIDER", "ollama"), Model: envOr("SCOUT_MODEL_SCREENING", "qwen3:0.6b")},
-			"analysis":      {Provider: envOr("SCOUT_MODEL_ANALYSIS_PROVIDER", "ollama"), Model: envOr("SCOUT_MODEL_ANALYSIS", "qwen3:0.6b")},
-			"proposal":      {Provider: envOr("SCOUT_MODEL_PROPOSAL_PROVIDER", "ollama"), Model: envOr("SCOUT_MODEL_PROPOSAL", "qwen3:0.6b")},
-			"conversation":  {Provider: envOr("SCOUT_MODEL_CONVERSATION_PROVIDER", "ollama"), Model: envOr("SCOUT_MODEL_CONVERSATION", "qwen3:0.6b")},
-			"deep_analysis": {Provider: envOr("SCOUT_MODEL_DEEP_PROVIDER", "ollama"), Model: envOr("SCOUT_MODEL_DEEP", "qwen3:0.6b")},
-		},
+		Models:      DefaultRoles(),
+	}
+}
+
+// DefaultProvider and DefaultModel are the built-in role defaults. They point
+// at a cloud model with a broad, cheap availability (DeepSeek Flash) rather
+// than a specific local Ollama tag: a built-in local default goes stale the
+// moment that tag is not pulled, leaving every role dead with no signal. Local
+// engines remain first-class via SCOUT_MODEL_* env vars or config.json.
+const (
+	DefaultProvider = "deepseek"
+	DefaultModel    = "deepseek-flash"
+)
+
+// DefaultRoles returns the per-role default provider/model, honoring the
+// SCOUT_MODEL_* environment overrides. Shared by Default() and any surface
+// that needs the same set.
+func DefaultRoles() map[string]LLMRole {
+	return map[string]LLMRole{
+		"screening":     {Provider: envOr("SCOUT_MODEL_SCREENING_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_SCREENING", DefaultModel)},
+		"analysis":      {Provider: envOr("SCOUT_MODEL_ANALYSIS_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_ANALYSIS", DefaultModel)},
+		"proposal":      {Provider: envOr("SCOUT_MODEL_PROPOSAL_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_PROPOSAL", DefaultModel)},
+		"conversation":  {Provider: envOr("SCOUT_MODEL_CONVERSATION_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_CONVERSATION", DefaultModel)},
+		"deep_analysis": {Provider: envOr("SCOUT_MODEL_DEEP_PROVIDER", DefaultProvider), Model: envOr("SCOUT_MODEL_DEEP", DefaultModel)},
 	}
 }
 

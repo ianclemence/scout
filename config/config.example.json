@@ -4,10 +4,10 @@
   "ollama_host": "http://127.0.0.1:11434",
   "dry_run": false,
   "models": {
-    "screening": { "provider": "ollama", "model": "qwen3:0.6b" },
-    "analysis": { "provider": "ollama", "model": "qwen3:0.6b" },
-    "proposal": { "provider": "ollama", "model": "qwen3:0.6b" },
-    "conversation": { "provider": "ollama", "model": "qwen3:0.6b" },
-    "deep_analysis": { "provider": "ollama", "model": "qwen3:0.6b" }
+    "screening": { "provider": "deepseek", "model": "deepseek-flash" },
+    "analysis": { "provider": "deepseek", "model": "deepseek-flash" },
+    "proposal": { "provider": "deepseek", "model": "deepseek-flash" },
+    "conversation": { "provider": "deepseek", "model": "deepseek-flash" },
+    "deep_analysis": { "provider": "deepseek", "model": "deepseek-flash" }
   }
 }
