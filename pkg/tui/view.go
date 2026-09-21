@@ -473,7 +473,7 @@ func (m *model) openModelSelector(search string) {
 // takeModelRefresh consumes the picker's pending-refresh flag and returns a
 // command to refresh model catalogs in the background (Pi refreshes on open).
 func (m *model) takeModelRefresh() tea.Cmd {
-	if m.modelSel == nil || !m.modelSel.needsRefresh {
+	if m.modelSel == nil || !m.modelSel.needsRefresh || m.st == nil || m.st.Core == nil {
 		return nil
 	}
 	m.modelSel.needsRefresh = false
