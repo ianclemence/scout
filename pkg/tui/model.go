@@ -18,6 +18,7 @@ import (
 	"github.com/ianclemence/scout/pkg/llm"
 	"github.com/ianclemence/scout/pkg/mcpauth"
 	"github.com/ianclemence/scout/pkg/runtime"
+	"github.com/ianclemence/scout/pkg/sources"
 	"github.com/ianclemence/scout/pkg/version"
 )
 
@@ -158,9 +159,9 @@ func initialModel(st *isession.ReplState) *model {
 		st.SwitchSession = m.switchSession
 		st.OpenModelSelector = m.openModelSelector
 		st.OpenThinking = m.openThinking
-		st.OpenSessions = m.openSessions
-		st.OpenApprovals = m.openApprovals
-		st.OpenSources = m.openSources
+		st.OpenSessions = func() { m.nextCmd = m.openSessions() }
+		st.OpenApprovals = func() { m.nextCmd = m.openApprovals() }
+		st.OpenSources = func() { m.nextCmd = m.openSources() }
 	}
 	return m
 }
@@ -255,6 +256,15 @@ func (m *model) renderHistory() string {
 
 type welcomeMsg struct{}
 
+// discoverDoneMsg carries the outcome of an async /discover run, so the source
+// search streams progress and never freezes the UI.
+type discoverDoneMsg struct {
+	found, stored int
+	sources       int
+	warnings      []string
+	err           error
+}
+
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -289,6 +299,8 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, tea.Println(msg.rendered)
+	case discoverDoneMsg:
+		return m.finishDiscover(msg)
 	case modelsRefreshedMsg:
 		return m.handleModelsRefreshed(msg)
 	case mcpLoginResultMsg:
@@ -575,10 +587,14 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 	m.st.SwitchSession = m.switchSession
 	m.st.OpenModelSelector = m.openModelSelector
 	m.st.OpenThinking = m.openThinking
-	m.st.OpenSessions = m.openSessions
-	m.st.OpenApprovals = m.openApprovals
-	m.st.OpenSources = m.openSources
+	m.st.OpenSessions = func() { m.nextCmd = m.openSessions() }
+	m.st.OpenApprovals = func() { m.nextCmd = m.openApprovals() }
+	m.st.OpenSources = func() { m.nextCmd = m.openSources() }
 	switch name {
+	case "discover":
+		// Discovery hits a live source and can take seconds; run it async so the
+		// dock keeps its spinner and never freezes.
+		return m.startDiscover(args)
 	case "login":
 		m.openLoginFlow(args)
 		return m, m.flushCmds()
@@ -608,23 +624,19 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 		}
 	case "approvals":
 		if strings.TrimSpace(args) == "" {
-			m.openApprovals()
-			return m, nil
+			return m, m.openApprovals()
 		}
 	case "opportunities", "opps":
 		if strings.TrimSpace(args) == "" {
-			m.openOpportunities()
-			return m, m.flushCmds()
+			return m, m.openOpportunities()
 		}
 	case "applications", "apps":
 		if strings.TrimSpace(args) == "" {
-			m.openApplications()
-			return m, m.flushCmds()
+			return m, m.openApplications()
 		}
 	case "sources", "integrations":
 		if strings.TrimSpace(args) == "" {
-			m.openSources()
-			return m, m.flushCmds()
+			return m, m.openSources()
 		}
 		if sub := strings.Fields(args); len(sub) >= 2 && sub[0] == "login" {
 			return m.startMCPLogin(sub[1])
@@ -682,6 +694,56 @@ func (m *model) flushCmds() tea.Cmd {
 	}
 	m.entries = nil
 	return tea.Println(strings.Join(blocks, "\n\n"))
+}
+
+// startDiscover launches a discovery run in the background so the UI keeps
+// streaming (spinner + activity) instead of freezing while the source search
+// completes. The result arrives as discoverDoneMsg.
+func (m *model) startDiscover(query string) (tea.Model, tea.Cmd) {
+	m.working = true
+	m.turnFrom = time.Now()
+	m.toolName = ""
+	m.println(entry{kind: eUser, text: "/discover " + strings.TrimSpace(query), at: time.Now()})
+	prog := m.prog
+	core := m.st.Core
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		res, err := core.DiscoverSources(ctx, sources.SearchFilter{Query: strings.TrimSpace(query), Limit: 20})
+		if prog == nil {
+			return // headless (tests): no UI to notify
+		}
+		prog.Send(discoverDoneMsg{
+			found: res.Found, stored: res.Stored, sources: len(res.Sources),
+			warnings: res.Warnings, err: err,
+		})
+	}()
+	return m, tea.Batch(m.flushCmds(), tickSpin())
+}
+
+// finishDiscover commits the discovery result to the transcript.
+func (m *model) finishDiscover(msg discoverDoneMsg) (tea.Model, tea.Cmd) {
+	m.working = false
+	if msg.err != nil {
+		m.println(entry{kind: eErr, text: "discovery failed: " + msg.err.Error(), at: time.Now()})
+		return m, m.flushCmds()
+	}
+	if msg.sources == 0 {
+		m.println(entry{kind: eNotice, text: "No connected sources yet. Add one in your shell: scout integrations add Upwork https://mcp.upwork.com/mcp", at: time.Now()})
+		return m, m.flushCmds()
+	}
+	var b strings.Builder
+	b.WriteString("**Search**\n\n")
+	b.WriteString(fmt.Sprintf("- Searched **%d** source(s)\n", msg.sources))
+	b.WriteString(fmt.Sprintf("- Found **%d** · stored **%d** new\n", msg.found, msg.stored))
+	for _, w := range msg.warnings {
+		b.WriteString("- ⚠ " + w + "\n")
+	}
+	if msg.stored > 0 {
+		b.WriteString("\nReview them with `/opportunities`.\n")
+	}
+	m.println(entry{kind: eCommand, text: b.String(), at: time.Now()})
+	return m, m.flushCmds()
 }
 
 // startTurn launches the agent goroutine.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/domain"
@@ -242,15 +242,15 @@ func listColumnWidth(items []pickItem) int {
 // second-level action picker: test connectivity, enable/disable, show
 // capabilities, or remove. This is the terminal answer to "what MCP is
 // configured" — with actions, not just a list.
-func (m *model) openSources() {
+func (m *model) openSources() tea.Cmd {
 	conns, err := m.st.Core.Connections()
 	if err != nil {
 		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	if len(conns) == 0 {
 		m.println(entry{kind: eNotice, text: "No work sources configured.\nAdd one in your shell: scout integrations add Upwork https://mcp.upwork.com/mcp", at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	var items []pickItem
 	for _, conn := range conns {
@@ -271,6 +271,7 @@ func (m *model) openSources() {
 		m.openSourceActions(name)
 		return ""
 	})
+	return nil
 }
 
 // openSourceActions shows the actions available for one configured source.
@@ -374,15 +375,15 @@ func (m *model) openThinking() {
 // model, and a relative age, with the current session marked; selecting one
 // switches in place and renders that session's conversation, so the picker
 // behaves like a resume rather than a notice.
-func (m *model) openSessions() {
+func (m *model) openSessions() tea.Cmd {
 	list, err := csession.List(m.st.Core.DB)
 	if err != nil {
 		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	if len(list) == 0 {
 		m.println(entry{kind: eNotice, text: "No sessions yet.", at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	var items []pickItem
 	for i := range list {
@@ -417,6 +418,7 @@ func (m *model) openSessions() {
 		}
 		return ""
 	})
+	return nil
 }
 
 // firstUserLine derives a session title from its first user message, used when
@@ -467,17 +469,17 @@ func relativeAge(t time.Time) string {
 
 // openApprovals opens the interactive approval picker: each pending action is
 // a row; Enter approves, Ctrl+R rejects. This is the trust boundary, made
-// reachable without typing an id.
-func (m *model) openApprovals() {
+// reachable without typing an id. It returns a command to flush any notice it
+// printed, so "nothing awaiting approval" is actually shown.
+func (m *model) openApprovals() tea.Cmd {
 	acts, err := m.st.Core.PendingApprovals()
 	if err != nil {
 		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	if len(acts) == 0 {
-		m.println(entry{kind: eNotice, text: "Nothing awaiting approval.", at: time.Now()})
-		m.flushCmds()
-		return
+		m.println(entry{kind: eCommand, text: "Nothing awaiting approval. Scout asks before any consequential action (submitting, sending, spending).", at: time.Now()})
+		return m.flushCmds()
 	}
 	var items []pickItem
 	for _, a := range acts {
@@ -501,19 +503,20 @@ func (m *model) openApprovals() {
 		return "rejected " + shortID(id)
 	}
 	m.picker = p
+	return nil
 }
 
 // openOpportunities opens the opportunity picker. Selecting one opens a
 // second-level action picker: analyze fit, draft a proposal, or show detail.
-func (m *model) openOpportunities() {
+func (m *model) openOpportunities() tea.Cmd {
 	opps, err := m.st.Core.ListOpportunities(runtime.OpportunityFilter{Limit: 50})
 	if err != nil {
 		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	if len(opps) == 0 {
 		m.println(entry{kind: eNotice, text: "No opportunities yet. Add one with: scout opportunity add --title … --description-file …", at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	var items []pickItem
 	for _, o := range opps {
@@ -527,6 +530,7 @@ func (m *model) openOpportunities() {
 		m.openOpportunityActions(id)
 		return ""
 	})
+	return nil
 }
 
 // openOpportunityActions shows the analyze/propose/detail choices for one
@@ -591,15 +595,15 @@ func (m *model) runOpportunityAction(action, id string) string {
 
 // openApplications opens the application picker. Selecting one shows its
 // detail; a follow-up draft is offered when it is submitted.
-func (m *model) openApplications() {
+func (m *model) openApplications() tea.Cmd {
 	apps, err := m.st.Core.ListApplications(50)
 	if err != nil {
 		m.println(entry{kind: eErr, text: err.Error(), at: time.Now()})
-		return
+		return m.flushCmds()
 	}
 	if len(apps) == 0 {
-		m.println(entry{kind: eNotice, text: "No applications yet.", at: time.Now()})
-		return
+		m.println(entry{kind: eCommand, text: "No applications yet. When you approve a proposal and a source can submit it, it will appear here.", at: time.Now()})
+		return m.flushCmds()
 	}
 	var items []pickItem
 	for _, a := range apps {
@@ -618,6 +622,7 @@ func (m *model) openApplications() {
 		}
 		return ""
 	})
+	return nil
 }
 
 // ---------- thinking picker (/thinking) ----------

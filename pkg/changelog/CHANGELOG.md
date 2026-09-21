@@ -3,6 +3,27 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.5] - 2026-09-22
+
+Honest model list, responsive commands.
+
+- **The model picker only offers models usable right now.** A hardcoded local
+  builtin (`qwen3:0.6b`) is gone — a local model must be discovered from the
+  running runtime, never assumed. Embedding-only models (e.g.
+  `nomic-embed-text`) are excluded from the conversation picker, and cached
+  local models the runtime no longer has are pruned, so a removed model can
+  never linger.
+- **`/approvals` no longer does nothing.** With nothing pending it printed
+  nothing at all, because the flush command was discarded; it now shows a
+  clear message (and the same fix covers `/applications`, `/sessions`,
+  `/opportunities`, `/sources`).
+- **`/discover` streams instead of freezing.** It ran synchronously and
+  blocked the interface until the source search finished, then dumped the
+  result. It now runs in the background with the dock's spinner and activity
+  line, and reports a labeled summary when done.
+- Empty states read as prose ("No applications yet…") rather than a bare
+  notice bullet.
+
 ## [0.13.4] - 2026-09-22
 
 Session switching that actually switches.

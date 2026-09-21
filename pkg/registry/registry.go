@@ -39,8 +39,21 @@ func Builtins() []ModelInfo {
 		{Provider: "moonshot", ID: "kimi-k2.6", DisplayName: "Kimi K2.6", Context: 262144, Reasoning: "optional", Tools: true, Vision: true, Source: "builtin"},
 		{Provider: "moonshot", ID: "kimi-k2.7-code", DisplayName: "Kimi K2.7 Code", Context: 262144, Reasoning: "always", Tools: true, Source: "builtin"},
 		{Provider: "anthropic", ID: "claude-haiku-4-5", DisplayName: "Claude Haiku 4.5", Reasoning: "optional", Tools: true, Vision: true, Source: "builtin"},
-		{Provider: "ollama", ID: "qwen3:0.6b", DisplayName: "Qwen3 0.6B (local)", Reasoning: "optional", Tools: false, Source: "builtin"},
 	}
+}
+
+// IsEmbeddingModel reports whether a model id names an embedding model, which
+// cannot serve a chat turn and must never appear in the conversation picker.
+// The check is substring-based on the model id (e.g. nomic-embed-text,
+// text-embedding-3-small, bge-m3).
+func IsEmbeddingModel(id string) bool {
+	low := strings.ToLower(id)
+	for _, marker := range []string{"embed", "bge-", "gte-", "e5-", "rerank"} {
+		if strings.Contains(low, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 type Registry struct {
@@ -60,7 +73,10 @@ func (r *Registry) http() *http.Client {
 	return &http.Client{Timeout: 20 * time.Second}
 }
 
-// List merges cache + builtins (+ live Ollama tags when reachable).
+// List merges cache + builtins (+ live Ollama tags when reachable). For a
+// local provider the live tags are the source of truth: a cached Ollama model
+// that is no longer installed must not be offered, so cached Ollama rows are
+// dropped and replaced by what the runtime actually has.
 func (r *Registry) List(ctx context.Context, provider string) []ModelInfo {
 	byID := map[string]ModelInfo{}
 	for _, b := range Builtins() {
@@ -77,6 +93,14 @@ func (r *Registry) List(ctx context.Context, provider string) []ModelInfo {
 			rows.Scan(&m.Provider, &m.ID, &m.DisplayName, &m.Context, &m.Reasoning, &tools, &vision, &m.Source)
 			m.Tools = tools == 1
 			m.Vision = vision == 1
+			// A local model is whatever the runtime currently has, discovered
+			// live below. A cached local row proves nothing was uninstalled or not.
+			if m.Provider == "ollama" {
+				continue
+			}
+			if IsEmbeddingModel(m.ID) {
+				continue
+			}
 			byID[m.Provider+"/"+m.ID] = m
 		}
 	}
@@ -126,6 +150,11 @@ func (r *Registry) refreshOne(ctx context.Context, provider string) (int, error)
 		ms := r.ollamaTags(ctx)
 		for _, m := range ms {
 			r.upsert(m)
+		}
+		// Prune cached local models the runtime no longer has, so a removed
+		// model cannot linger in the catalog.
+		if len(ms) > 0 {
+			_, _ = r.DB.DB.Exec(`DELETE FROM models_cache WHERE provider='ollama' AND updated_at < ?`, time.Now().UTC().Add(-time.Minute).Format(time.RFC3339))
 		}
 		return len(ms), nil
 	}
@@ -206,6 +235,9 @@ func (r *Registry) ollamaTags(ctx context.Context) []ModelInfo {
 	}
 	var ms []ModelInfo
 	for _, m := range out.Models {
+		if IsEmbeddingModel(m.Name) {
+			continue // embeddings cannot chat; never offer them
+		}
 		ms = append(ms, ModelInfo{Provider: "ollama", ID: m.Name, DisplayName: m.Name + " (local)", Source: "ollama"})
 	}
 	return ms
