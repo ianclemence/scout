@@ -25,9 +25,12 @@ pkg/
                      audit log, ReAct agent loop w/ events, skill selection
   skills/            18 embedded SKILL.md workflows + registry/selection
   sources/           OpportunitySource interface: local, MCP, fake adapters
-  isession/          slash registry + line-mode loop (non-TTY fallback)
+  isession/          slash registry + line-mode loop (non-TTY fallback);
+                     scoped-model state (filter/cycle/persist)
   tui/               Bubble Tea session: scrollback transcript, composer,
-                     palette, pickers, approval card, footer, markdown
+                     palette, approval card, footer, markdown;
+                     scoped-models + searchable model selectors;
+                     staged login/logout flows (method → provider → key)
   mcpclient/         Scout as MCP client (official Go SDK; HTTP + stdio)
   upwork/            first MCP adapter helpers (endpoint, discovery mapping)
   approve/           approval state machine + lifecycle events
@@ -69,26 +72,20 @@ System instructions > profile/preferences > relevant evidence > session
 history > tool results > external marketplace content (untrusted data, never
 instructions). The loop re-labels tool results as data on every turn.
 
-## Comparative review: Pi, OpenCode, Ghost vs Scout (summary)
+## Design decisions
 
-OpenCode (v2.0.11, inspected on this Pi) contributed: named MCP servers with
-local-command vs remote-URL kinds, global/project config layering, separate
-OAuth auth flow (`mcp auth`/`logout`), `auth login/logout/switch` credential
-management, `models` listing, SQLite-backed persistence, background service
-vs `--standalone`, and non-interactive `run`. Scout adopts: remote + stdio
-MCP kinds, layered config (file/env), masked key storage with store-over-env
-precedence, registry-backed `models`, SQLite everything. Scout rejects:
-background-service architecture (single process on a Pi), plugin system,
-project-scoped configs (single-user tool).
+Scout is a single-user, single-process tool that must run comfortably on
+modest hardware. These choices follow from that:
 
-| Area | Pi | Ghost | Scout v0.3 | Adopt / Reject |
-|---|---|---|---|---|
-| Terminal UX | custom alt/main-screen TUI framework | Bubble Tea scrollback transcript + dock + footer | same model, Scout theme | Adopt Ghost's layout; Scout colors/commands |
-| Sessions | manager: resume/fork/tree/compact/share | threads, contexts, history | SQLite sessions: create/resume/compact, history file | Adopt resume + compact; reject fork/tree/contexts |
-| Providers | registry + generated model catalog + OAuth | provider/modelreg + routing | interface + 5 providers + registry + env/file/stored keys | Adopt registry + switching; reject generated catalogs |
-| Agent loop | native tool declarations, streaming events | gated capabilities + budgets | ReAct JSON blocks, events, per-tool call budget | Adopt event sourcing + budgets; adapt tool binding |
-| Tools | bash/fs/editing with approval prompts | tool registry + permission broker (allow/ask/deny) | domain tools + permission classes + approvals | Adopt broker thinking, always-ask for external; reject auto modes |
-| Approvals | prompts | durable permission requests + standing grants | PendingAction records + lifecycle events | Adopt lifecycle events; reject standing auto-grants |
-| Secrets | OS keychain/auth storage | vault + redaction | encrypted SQLite + env + redact helper | Adopt redaction; keychain unavailable headless |
-| Persistence | sqlite session backend + JSONL export | SQLite + canonical events | SQLite v5 (events + tool_audit + cache tables) | Adopt canonical-event thinking; reject export formats |
-| Testing | vitest + harness + faux provider | golden suites + arch tests | go test + fake source + fake provider | Adopt fakes; reject heavy golden harness (for now) |
+| Area | Decision | Why |
+|---|---|---|
+| Terminal UX | Scrollback transcript + dock composer + status footer | Keeps full history while the live area stays small and stable |
+| Sessions | SQLite sessions: create / resume / compact | Durable without a daemon; compact keeps context bounded |
+| Providers | Interface + 5 providers + registry + env/file/stored keys | One shape for cloud and local models; keys never in config files |
+| Agent loop | ReAct tool blocks + streamed events + per-tool call budget | Provider-agnostic, works on small local models, no per-provider tool binding |
+| Tools | Typed registry + permission classes + approvals | Every capability is auditable and gated |
+| Approvals | PendingAction records + lifecycle events | Consequential actions are records, not side effects |
+| Secrets | AES-256-GCM in SQLite + env + redaction helper | No OS keychain is available on a headless device |
+| Persistence | SQLite (events + tool_audit + cache tables) | One file, pure Go driver, no external services |
+| Testing | `go test` + fake sources + fake providers | Fast, hermetic, no network in unit tests |
+| MCP | Client (remote + stdio) and server (stdio + HTTP) | Official integrations only; other agents can call the same Core |

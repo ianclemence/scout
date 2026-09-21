@@ -204,20 +204,20 @@ func TestAuthDialogFlow(t *testing.T) {
 	st := &isession.ReplState{Core: core, Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}
 	m := initialModel(st)
 	m.width, m.ready = 80, true
-	// /login deepseek opens the masked dialog, not cooked output.
+	// /login deepseek opens the masked key stage, not cooked output.
 	nm, _ := m.runCommand("login deepseek")
 	m = nm.(*model)
-	if m.auth == nil || m.auth.provider != "deepseek" {
-		t.Fatal("auth dialog should open")
+	if m.login == nil || m.login.stage != loginStageKey || m.login.provider != "deepseek" {
+		t.Fatal("login key stage should open")
 	}
-	if card := m.authCard(); !strings.Contains(card, "Login to DeepSeek") || !strings.Contains(card, "esc to cancel") {
+	if card := m.login.view(80); !strings.Contains(card, "Login to DeepSeek") || !strings.Contains(card, "esc to cancel") {
 		t.Fatalf("bad dialog card: %q", card)
 	}
 	// Esc cancels without storing.
 	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
 	m = nm.(*model)
-	if m.auth != nil {
-		t.Fatal("esc should close dialog")
+	if m.login != nil {
+		t.Fatal("esc should close the flow")
 	}
 	if _, err := core.LoadSecret("llm:deepseek"); err == nil {
 		t.Fatal("cancelled login must not store")
@@ -225,8 +225,45 @@ func TestAuthDialogFlow(t *testing.T) {
 	// Unknown provider rejected.
 	nm, _ = m.runCommand("login nope")
 	m = nm.(*model)
-	if m.auth != nil {
-		t.Fatal("unknown provider must not open dialog")
+	if m.login != nil {
+		t.Fatal("unknown provider must not open the flow")
+	}
+}
+
+func TestLoginStagedFlow(t *testing.T) {
+	core := testCore(t)
+	st := &isession.ReplState{Core: core, Sess: &csession.Session{}}
+	m := initialModel(st)
+	m.width, m.ready = 80, true
+
+	// /login with no argument starts at the method stage.
+	nm, _ := m.runCommand("login")
+	m = nm.(*model)
+	if m.login == nil || m.login.stage != loginStageMethod {
+		t.Fatal("bare /login should open the method selector")
+	}
+	if v := m.login.view(80); !strings.Contains(v, "Select authentication method") {
+		t.Fatalf("method stage missing: %q", v)
+	}
+	// Enter on the API-key method moves to the provider stage and lists providers.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = nm.(*model)
+	if m.login.stage != loginStageProvider || len(m.login.providers) == 0 {
+		t.Fatalf("provider stage not reached: %+v", m.login)
+	}
+	// Filtering narrows the list.
+	for _, r := range "deepseek" {
+		m.login.search += string(r)
+		m.login.rebuild()
+	}
+	if len(m.login.filtered) != 1 || m.login.filtered[0].id != "deepseek" {
+		t.Fatalf("filter failed: %+v", m.login.filtered)
+	}
+	// Esc from the provider stage returns to the method stage.
+	nm, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	m = nm.(*model)
+	if m.login == nil || m.login.stage != loginStageMethod {
+		t.Fatalf("esc should return to method stage: %+v", m.login)
 	}
 }
 
@@ -240,8 +277,8 @@ func TestLogoutListsStoredOnly(t *testing.T) {
 	}
 	nm, _ := m.runCommand("logout")
 	m = nm.(*model)
-	if m.sel == nil || m.selMode != "logout" || len(m.sel.items) != 1 {
-		t.Fatalf("logout should list stored only: %+v", m.sel)
+	if m.login == nil || m.login.stage != loginStageLogout || len(m.login.filtered) != 1 {
+		t.Fatalf("logout should list stored only: %+v", m.login)
 	}
 	nm, _ = m.removeStoredKey("openai")
 	m = nm.(*model)

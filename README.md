@@ -104,7 +104,7 @@ scout
 
 A full-screen chat session opens. Type `/status` — it shows your provider, model, profile state, and counts. On a fresh install the profile is empty; that's step 5.
 
-Type `/` for commands, `Ctrl+L` to switch models, `Esc` to stop a running turn.
+Type `/` for commands, `Ctrl+L` to pick a model, `Ctrl+P` to cycle the scoped set, `Esc` to stop a running turn.
 
 ### 5. Teach Scout who you are
 
@@ -257,11 +257,12 @@ scout update          # fetch, refuse dirty trees, skip if current, rebuild, res
 | `/approvals [approve\|reject <id>]` | Decide consequential actions |
 | `/applications`, `/pipeline`, `/inbox` | Track outcomes |
 | `/feedback <id> <signal> [note]` | Explicit preference data (visible, never hidden) |
-| `/model [provider/model]` | Switch conversation model in-session (numbered picker) |
+| `/model [provider/model]` | Select conversation model (searchable picker: Tab all/scoped, Ctrl+S default) |
+| `/scoped-models` | Enable/disable & order models for Ctrl+P cycling (Ctrl+S saves) |
 | `/thinking <off\|low\|medium\|high\|max>` | Reasoning level, mapped to provider controls |
-| `/models`, `/providers`, `/sources` | Catalog, credentials, integrations |
+| `/providers`, `/sources` | Credentials, integrations |
 | `/skills`, `/tools` | Skill workflows, tool registry with permission classes |
-| `/login <provider>`, `/logout <provider>` | Key management |
+| `/login [provider]`, `/logout` | Staged sign-in (method → provider → masked key) / remove stored key |
 | `/session`, `/sessions`, `/new`, `/resume`, `/compact`, `/clear` | Session lifecycle (resume/new switch in place) |
 | `/name <name>`, `/export <path>`, `/copy`, `/keys` | Rename, export transcript, copy answer, shortcuts |
 | `/doctor`, `/quit` | Full diagnostics in-session, exit |
@@ -278,7 +279,7 @@ Config file `~/.config/scout/config.json` (or `$SCOUT_CONFIG`) sets addresses, d
 
 ### Providers and models
 
-Five first-class providers, each verified against current docs and Pi/Ghost's own registries:
+Five first-class providers, each verified against current provider documentation:
 
 | Provider | Base URL | Key | Notes |
 |----------|----------|-----|-------|
@@ -312,7 +313,7 @@ Enabled with user lingering, so it starts at device boot without login. Never ex
 
 **Scout as client** — remote (`https://…`) or local stdio (`--command "prog args"`) MCP servers, capability discovery, OAuth tokens stored encrypted. Upwork is the first work source; LinkedIn-style listings and other job platforms fit the same normalized model as they gain usable official interfaces. The domain never assumes one platform\u2019s concepts.
 
-**Scout as server** — `scout mcp` (stdio) or `scout mcp serve` (Streamable HTTP) exposes domain tools (`get_profile`, `search_opportunities`, `analyze_opportunity`, `prepare_proposal`, `get_pipeline`, `approve_action`, …) to OpenCode, Codex, Claude, and other MCP clients. Same Core, same rules — including approvals.
+**Scout as server** — `scout mcp` (stdio) or `scout mcp serve` (Streamable HTTP) exposes domain tools (`get_profile`, `search_opportunities`, `analyze_opportunity`, `prepare_proposal`, `get_pipeline`, `approve_action`, …) to any MCP client. Same Core, same rules — including approvals.
 
 ---
 

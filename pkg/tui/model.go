@@ -83,10 +83,14 @@ type model struct {
 	spin      int
 	cancel    context.CancelFunc
 	sel       *selector
-	selMode   string // palette, model, login, logout
+	selMode   string // palette, login, logout
 	palFilter string
-	auth      *authDialog
+	login     *loginFlowUI
 	approval  *pendingApproval
+	// scopedSel and modelSel are the interactive model dialogs. Only one may
+	// be open at a time; both render in the dock below the composer.
+	scopedSel *scopedModelsUI
+	modelSel  *modelPickerUI
 	lastDay   string
 	welcomed  bool
 	quitting  bool
@@ -239,17 +243,8 @@ func visualRows(s string, w int) int {
 }
 
 func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.auth != nil {
-		switch msg.String() {
-		case "esc", "ctrl+c":
-			m.auth = nil
-			return m, nil
-		case "enter":
-			return m, m.submitAuthDialog()
-		}
-		var cmd tea.Cmd
-		m.auth.input, cmd = m.auth.input.Update(msg)
-		return m, cmd
+	if m.login != nil {
+		return m.handleLoginKey(msg)
 	}
 	if m.approval != nil {
 		switch msg.String() {
@@ -271,6 +266,36 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		default:
 			return m, nil
 		}
+	}
+	if m.scopedSel != nil {
+		key := msg.String()
+		if key == "esc" || key == "ctrl+c" {
+			m.scopedSel = nil
+			return m, nil
+		}
+		if persist := m.scopedSel.handleKey(key); persist {
+			ids := m.scopedSel.ids
+			if err := m.st.SetScopedModels(ids); err != nil {
+				m.scopedSel = nil
+				return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: err.Error()}))
+			}
+			m.scopedSel.dirty = false
+			return m, tea.Println(styleNotice.Render("Model selection saved to settings"))
+		}
+		return m, nil
+	}
+	if m.modelSel != nil {
+		key := msg.String()
+		sel, doSelect, setDefault, cancel := m.modelSel.handleKey(key)
+		if cancel {
+			m.modelSel = nil
+			return m, nil
+		}
+		if doSelect || setDefault {
+			m.modelSel = nil
+			return m.applyModelSelection(sel.Provider, sel.ID, setDefault)
+		}
+		return m, nil
 	}
 	if m.sel != nil && m.selMode == "palette" {
 		switch msg.String() {
@@ -350,8 +375,12 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitting = true
 		return m, tea.Quit
 	case "ctrl+l":
-		m.openModelPicker()
+		m.openModelSelector("")
 		return m, nil
+	case "ctrl+p":
+		return m.cycleModel(1)
+	case "shift+ctrl+p":
+		return m.cycleModel(-1)
 	case "enter":
 		if m.working {
 			return m, nil
@@ -381,8 +410,8 @@ func (m *model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // runCommand executes a slash command, capturing output into entries.
-// login/logout use the native TUI flow (Pi-style dialog), never the
-// cooked-mask prompt, which cannot work in raw terminal mode.
+// login/logout open staged TUI flows, never the cooked prompt (which cannot
+// work in raw terminal mode).
 func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 	name := line
 	args := ""
@@ -403,6 +432,8 @@ func (m *model) runCommand(line string) (tea.Model, tea.Cmd) {
 	}
 	m.st.Width = m.width
 	m.st.SwitchSession = m.switchSession
+	m.st.OpenScopedModels = m.openScopedModels
+	m.st.OpenModelSelector = m.openModelSelector
 	var out strings.Builder
 	st := m.st
 	prev := st.Out
@@ -476,7 +507,7 @@ func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 	m.tools = 0
 	m.st.History = append(m.st.History, llm.Message{Role: "user", Content: line})
 	_ = csession.AppendMessages(m.st.Core.DB, m.st.Sess.ID, []csession.Message{{Role: "user", Content: line}})
-	// Auto-name untitled sessions from the first message (Pi-style).
+	// Auto-name untitled sessions from the first message.
 	if m.st.Sess.Name == "interactive" || m.st.Sess.Name == "session" {
 		if name := autoName(line); name != "" {
 			_ = csession.Rename(m.st.Core.DB, m.st.Sess.ID, name)
@@ -552,7 +583,7 @@ func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd)
 }
 
 // removeStoredKey deletes a stored credential. Environment variables are
-// never touched — mirroring Pi's logout semantics.
+// never touched — logout only removes credentials saved by /login.
 func (m *model) removeStoredKey(provider string) (tea.Model, tea.Cmd) {
 	if !validLoginProvider(provider) {
 		return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: "Unknown provider: " + provider}))

@@ -36,6 +36,32 @@ func Open(dbPath string) (*Store, error) {
 
 func (s *Store) Close() error { return s.DB.Close() }
 
+// GetSetting reads a value from app_settings. ok is false when the key is absent.
+func (s *Store) GetSetting(key string) (value string, ok bool, err error) {
+	row := s.DB.QueryRow(`SELECT value FROM app_settings WHERE key=?`, key)
+	switch err = row.Scan(&value); err {
+	case nil:
+		return value, true, nil
+	case sql.ErrNoRows:
+		return "", false, nil
+	default:
+		return "", false, err
+	}
+}
+
+// SetSetting upserts a value into app_settings.
+func (s *Store) SetSetting(key, value string) error {
+	_, err := s.DB.Exec(`INSERT INTO app_settings(key, value) VALUES(?, ?)
+		ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}
+
+// DeleteSetting removes a key from app_settings (missing keys are a no-op).
+func (s *Store) DeleteSetting(key string) error {
+	_, err := s.DB.Exec(`DELETE FROM app_settings WHERE key=?`, key)
+	return err
+}
+
 func (s *Store) migrate() error {
 	var v int
 	if err := s.DB.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {

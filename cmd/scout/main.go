@@ -118,7 +118,7 @@ func usage() {
   scout backup <file>          backup database
   scout update [--dry-run] [--force]  pull, rebuild, reinstall, restart service
   scout restore <file>         restore database backup
-  scout mcp [stdio|serve]      Scout MCP server for OpenCode/Codex/Claude
+  scout mcp [stdio|serve]      Scout MCP server for other MCP clients
   scout version`)
 }
 

@@ -13,7 +13,8 @@ import (
 	"github.com/ianclemence/scout/pkg/workspace"
 )
 
-// Events emitted by the agent loop (adapted from Pi's event-sourced loop:
+// Events emitted by the agent loop (event-sourced, so callers can render
+// streaming progress and tool activity).
 // agent_start → turns → message/tool events → agent_end).
 type Event struct {
 	Type string // agent_start, turn_start, token, tool_start, tool_end, approval, agent_end, error
@@ -90,7 +91,7 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 		})
 		if err != nil {
 			emit(Event{Type: "error", Err: err})
-			// Retry once on transient failure (Pi-inspired auto-retry, bounded).
+			// Retry once on transient failure (bounded).
 			if turn == 0 {
 				time.Sleep(2 * time.Second)
 				continue

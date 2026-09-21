@@ -607,6 +607,16 @@ func (c *Core) EngineFor(provider, model string) *agent.Engine {
 	return eng
 }
 
+// SetRoleModel updates an in-memory role mapping and persists it to the config
+// file. Used by /model Ctrl+S ("set as default").
+func (c *Core) SetRoleModel(role, provider, model string) error {
+	if c.Cfg.Models == nil {
+		c.Cfg.Models = map[string]config.LLMRole{}
+	}
+	c.Cfg.Models[role] = config.LLMRole{Provider: provider, Model: model}
+	return config.SaveRoles(map[string]config.LLMRole{role: {Provider: provider, Model: model}})
+}
+
 // ---------- secrets ----------
 
 func (c *Core) SaveSecret(key, plaintext string) error {

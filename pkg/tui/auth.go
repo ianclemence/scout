@@ -4,49 +4,39 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// authDialog replaces the composer during login, mirroring Pi's login
-// dialog: titled box, masked key prompt, esc cancels, enter submits.
-type authDialog struct {
-	provider string
-	input    textinput.Model
-	err      string
-}
-
-func newAuthDialog(provider string) authDialog {
-	ti := textinput.New()
-	ti.Prompt = ""
-	ti.EchoMode = textinput.EchoPassword
-	ti.EchoCharacter = '•'
-	ti.CharLimit = 300
-	ti.Focus()
-	return authDialog{provider: provider, input: ti}
-}
-
+// openLoginFlow starts the staged login experience.
+//
+//	/login              -> authentication-method selector
+//	/login <provider>   -> straight to that provider's key dialog
 func (m *model) openLoginFlow(arg string) {
 	if p := strings.ToLower(strings.TrimSpace(arg)); p != "" {
 		if !validLoginProvider(p) {
 			m.println(entry{kind: eErr, text: "Unknown provider. Choose: openai, anthropic, deepseek, moonshot.", at: time.Now()})
 			return
 		}
-		d := newAuthDialog(p)
-		m.auth = &d
+		f := newLoginFlow()
+		f.openKeyStage(p, providerDisplay(p))
+		m.login = f
 		return
 	}
-	// No provider: pick from all key providers with live state.
-	items := []selItem{}
-	for _, p := range []string{"openai", "anthropic", "deepseek", "moonshot"} {
-		items = append(items, selItem{label: p, detail: loginProviderState(m, p), value: p})
+	m.login = newLoginFlow()
+}
+
+// openLogoutFlow starts the stored-credential selector.
+func (m *model) openLogoutFlow() {
+	if len(m.st.Core.StoredProviders()) == 0 {
+		m.println(entry{kind: eNotice, text: "No stored credentials to remove. /logout only removes credentials saved by /login; environment variables are unchanged.", at: time.Now()})
+		return
 	}
-	m.sel = &selector{title: "Login — choose provider", items: items}
-	m.selMode = "login"
+	f := newLoginFlow()
+	f.openLogoutStage(m.st.Core)
+	m.login = f
 }
 
 func validLoginProvider(p string) bool {
@@ -57,44 +47,50 @@ func validLoginProvider(p string) bool {
 	return false
 }
 
-func loginProviderState(m *model, p string) string {
-	if s, err := m.st.Core.LoadSecret("llm:" + p); err == nil && s != "" {
-		return "key stored"
+// handleLoginKey routes a key to the active login flow and applies its actions.
+func (m *model) handleLoginKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	res := m.login.handleKey(msg)
+
+	switch {
+	case res.done:
+		m.login = nil
+		return m, nil
+	case res.logout != "":
+		m.login = nil
+		return m.removeStoredKey(res.logout)
+	case res.moveTo != nil && *res.moveTo == loginStageProvider && res.method != "":
+		m.login.openProviderStage(m.st.Core, res.method, "")
+		return m, nil
+	case res.moveTo != nil && *res.moveTo == loginStageMethod:
+		m.login = newLoginFlow()
+		return m, nil
+	case res.moveTo != nil && *res.moveTo == loginStageKey && res.provider != "":
+		m.login.openKeyStage(res.provider, providerDisplay(res.provider))
+		return m, nil
+	case res.submit:
+		return m, m.submitAuthDialog()
 	}
-	env := map[string]string{"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY", "deepseek": "DEEPSEEK_API_KEY", "moonshot": "MOONSHOT_API_KEY"}[p]
-	if env != "" && os.Getenv(env) != "" {
-		return "key in env (" + env + ")"
-	}
-	return "no key"
+	return m, nil
 }
 
-func (m *model) openLogoutFlow() {
-	stored := m.st.Core.StoredProviders()
-	if len(stored) == 0 {
-		m.println(entry{kind: eNotice, text: "No stored credentials to remove. /logout only removes credentials saved by /login; environment variables are unchanged.", at: time.Now()})
-		return
-	}
-	items := []selItem{}
-	for _, p := range stored {
-		items = append(items, selItem{label: p, detail: "stored key — enter removes", value: p})
-	}
-	m.sel = &selector{title: "Logout — remove stored key", items: items}
-	m.selMode = "logout"
-}
-
-// submitAuthDialog saves the key and verifies it where cheap.
+// submitAuthDialog saves the entered key and verifies it where cheap.
 func (m *model) submitAuthDialog() tea.Cmd {
-	a := m.auth
-	m.auth = nil
-	key := strings.TrimSpace(a.input.Value())
+	f := m.login
+	if f == nil {
+		return nil
+	}
+	key := strings.TrimSpace(f.input.Value())
 	if key == "" {
-		return tea.Println(renderEntryStatic(entry{kind: eErr, text: "Login cancelled — empty key."}))
+		f.errMsg = "Empty key — try again."
+		return nil
 	}
-	if err := m.st.Core.SaveSecret("llm:"+a.provider, key); err != nil {
-		return tea.Println(renderEntryStatic(entry{kind: eErr, text: "Failed to save API key for " + a.provider + ": " + err.Error()}))
+	if err := m.st.Core.SaveSecret("llm:"+f.provider, key); err != nil {
+		f.errMsg = "Failed to save: " + err.Error()
+		return nil
 	}
-	msg := "Saved API key for " + a.provider + "."
-	if v := verifyKey(m, a.provider, key); v != "" {
+	m.login = nil
+	msg := "Saved API key for " + providerDisplay(f.provider) + "."
+	if v := verifyKey(m, f.provider, key); v != "" {
 		msg += " " + v
 	}
 	return tea.Println(renderEntryStatic(entry{kind: eNotice, text: msg}))
@@ -122,7 +118,7 @@ func verifyKey(m *model, provider, key string) string {
 		ep = endpointFor(m, provider)
 	}
 	if ep == "" {
-		return "(key saved; restart-free and ready)"
+		return "(key saved; ready to use)"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -137,7 +133,7 @@ func verifyKey(m *model, provider, key string) string {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
-		return fmt.Sprintf("(saved, but verification failed: HTTP %d — check the key with /login %s)", resp.StatusCode, provider)
+		return fmt.Sprintf("(saved, but verification failed: HTTP %d — check the key)", resp.StatusCode)
 	}
 	return "(verified against the provider)"
 }

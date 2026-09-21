@@ -31,7 +31,7 @@ Config file: `~/.config/scout/config.json` (or `$SCOUT_CONFIG`):
 | `OPENAI_COMPAT_ENDPOINT` / `OPENAI_COMPAT_KEY` | generic endpoint |
 | `SCOUT_MODEL_<ROLE>` / `SCOUT_MODEL_<ROLE>_PROVIDER` | per-role override (roles: screening, analysis, proposal, conversation, deep_analysis) |
 
-Interactive: `/model` switches the session conversation model without restart (registry-backed picker with context/reasoning metadata); `/thinking` sets the reasoning level; `/login <provider>` stores a key encrypted (masked prompt, never displayed). `scout config` shows effective config with secrets redacted. `scout models refresh [provider]` updates the cached model catalog (provider `/models` or Ollama tags; offline falls back to cache, then built-ins).
+Interactive: `/model` opens a searchable registry-backed picker (Tab toggles all/scoped scope, Ctrl+S sets the conversation default) and accepts an exact `provider/model` argument to switch immediately; `/scoped-models` enables/disables and orders the models offered when cycling with Ctrl+P (Ctrl+S persists); `/thinking` sets the reasoning level; `/login` opens a staged flow (authentication method → provider → masked key prompt), or `/login <provider>` jumps straight to that provider's prompt; `/logout` lists stored credentials and removes the one you pick. Keys are encrypted and never displayed. `scout config` shows effective config with secrets redacted. `scout models refresh [provider]` updates the cached model catalog (provider `/models` or Ollama tags; offline falls back to cache, then built-ins).
 
 MCP sources: remote (`scout integrations add Upwork https://mcp.upwork.com/mcp`) or local stdio (`scout integrations add Name --command "prog args"`).
 

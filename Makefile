@@ -4,7 +4,7 @@ BINARY_NAME=scout
 BUILD_DIR=build
 CMD_DIR=cmd/$(BINARY_NAME)
 
-# Version from git tags (Ghost-style): v0.4.0, v0.4.0-3-gabc1234, or dev.
+# Version from git tags: v0.4.0, v0.4.0-3-gabc1234, or dev.
 VERSION?=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 GIT_COMMIT=$(shell git rev-parse --short=8 HEAD 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-X github.com/ianclemence/scout/pkg/version.Version=$(VERSION)"

@@ -7,6 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"github.com/ianclemence/scout/pkg/isession"
 )
 
 // Spinner cube, rotating while a turn runs.
@@ -24,15 +26,21 @@ func (m *model) View() string {
 	var b strings.Builder
 	b.WriteString(m.dockPreview())
 	b.WriteString("\n")
-	if m.auth != nil {
-		b.WriteString(m.authCard())
+	if m.login != nil {
+		b.WriteString(m.login.view(m.width))
 	} else if m.approval != nil {
 		b.WriteString(m.approvalCard())
 	} else {
 		b.WriteString(m.promptBox())
 	}
 	b.WriteString("\n")
-	if m.sel != nil {
+	if m.scopedSel != nil {
+		b.WriteString(m.scopedSel.view(m.width))
+		b.WriteString("\n")
+	} else if m.modelSel != nil {
+		b.WriteString(m.modelSel.view(m.width))
+		b.WriteString("\n")
+	} else if m.sel != nil {
 		b.WriteString(m.selectorView())
 		b.WriteString("\n")
 	}
@@ -204,7 +212,7 @@ func (m *model) welcomeCard() string {
 	}
 	art := styleScoutArt.Render("▓▒░  👷  S C O U T  ░▒▓")
 	tag := styleWelcomeTitle.Render(wrapFirst("Find work worth doing.", minInt(w-2, 64)))
-	cmds := styleWelcomeCmds.Render("  /help      commands & keys\n  /model     switch thinking engine\n  /profile   who Scout thinks you are\n  /sources   work sources & auth")
+	cmds := styleWelcomeCmds.Render("  /help           commands & keys\n  /login          connect a provider\n  /model          select conversation model (ctrl+p cycles)\n  /scoped-models  pick models to cycle\n  /profile        who Scout thinks you are")
 	return center(art) + "\n" + center(tag) + "\n\n" + center(cmds)
 }
 
@@ -287,16 +295,20 @@ func styleModel(local string) lipgloss.Style {
 func (m *model) footerKeys() string {
 	var keys string
 	switch {
-	case m.auth != nil:
-		keys = "enter submit · esc cancel"
+	case m.login != nil:
+		keys = "↑↓ pick · type to filter · enter select · esc cancel"
 	case m.approval != nil:
 		keys = "1 approve · 2 reject · esc leaves pending"
+	case m.scopedSel != nil:
+		keys = "↑↓ move · enter toggle · ctrl+a/x all/clear · ctrl+p provider · alt+↑↓ reorder · ctrl+s save · esc close"
+	case m.modelSel != nil:
+		keys = "↑↓ pick · tab scope · enter select · ctrl+s default · esc close"
 	case m.sel != nil:
 		keys = "↑↓ pick · enter select · esc close"
 	case m.working:
 		keys = "esc aborts · / commands"
 	default:
-		keys = "/ commands · tab complete · ctrl+l model · esc quit"
+		keys = "/ commands · tab complete · ctrl+l model · ctrl+p cycle · esc quit"
 	}
 	return styleFooterHint.Render(cellTruncate(keys, m.width))
 }
@@ -328,21 +340,59 @@ func (m *model) refilterPalette() {
 	}
 }
 
-func (m *model) openModelPicker() {
-	items := []selItem{}
-	for _, o := range modelOptionsFor(m.st) {
-		mark := ""
-		if o.prov == m.st.Sess.Provider && o.model == m.st.Sess.Model {
-			mark = " ●"
-		}
-		items = append(items, selItem{
-			label:  o.prov + "/" + o.model + mark,
-			detail: o.note,
-			value:  o.prov + "/" + o.model,
-		})
+// openModelSelector opens the searchable model selector, pre-filled
+// with search. It mirrors the /model command's interactive behaviour.
+func (m *model) openModelSelector(search string) {
+	defProv, defModel := m.st.Sess.Provider, m.st.Sess.Model
+	if r, ok := m.st.Core.Cfg.Models["conversation"]; ok && r.Provider != "" {
+		defProv, defModel = r.Provider, r.Model
 	}
-	m.sel = &selector{title: "Model (session)", items: items}
-	m.selMode = "model"
+	m.modelSel = newModelPickerUI(m.st.Core, m.st.ScopedModels, m.st.Sess.Provider, m.st.Sess.Model, defProv, defModel, search)
+}
+
+// openScopedModels opens the enable/disable + reorder selector.
+func (m *model) openScopedModels() {
+	m.scopedSel = newScopedModelsUI(m.st.Core, m.st.ScopedModels, m.st.Sess.Provider, m.st.Sess.Model)
+}
+
+// applyModelSelection switches the session model (and optionally records it as
+// the conversation default).
+func (m *model) applyModelSelection(prov, model string, asDefault bool) (tea.Model, tea.Cmd) {
+	m.st.Sess.Provider, m.st.Sess.Model = prov, model
+	saveSessionModel(m.st)
+	if asDefault {
+		// Persisting the default model role updates the config file/env model.
+		if err := m.st.Core.SetRoleModel("conversation", prov, model); err != nil {
+			return m, tea.Println(renderEntryStatic(entry{kind: eErr, text: err.Error()}))
+		}
+		return m, tea.Println(styleNotice.Render("Default model → " + prov + "/" + model))
+	}
+	return m, tea.Println(styleNotice.Render("Session model → " + prov + "/" + model))
+}
+
+// cycleModel rotates the session model through the scoped set (Ctrl+P /
+// Shift+Ctrl+P).
+func (m *model) cycleModel(delta int) (tea.Model, tea.Cmd) {
+	models := isession.AvailableModels(m.st.Core)
+	scoped := isession.FilterScoped(models, m.st.ScopedModels)
+	if len(scoped) < 2 {
+		msg := "Only one model available"
+		if !m.st.ScopedModels.AllEnabled() {
+			msg = "Only one model in scope"
+		}
+		return m, tea.Println(styleNotice.Render(msg))
+	}
+	cur := -1
+	for i, mm := range scoped {
+		if mm.Provider == m.st.Sess.Provider && mm.ID == m.st.Sess.Model {
+			cur = i
+			break
+		}
+	}
+	next := scoped[((cur+delta)%len(scoped)+len(scoped))%len(scoped)]
+	m.st.Sess.Provider, m.st.Sess.Model = next.Provider, next.ID
+	saveSessionModel(m.st)
+	return m, tea.Println(styleNotice.Render("Switched to " + next.Provider + "/" + next.ID))
 }
 
 func (m *model) pickSelected() (tea.Model, tea.Cmd) {
@@ -354,17 +404,6 @@ func (m *model) pickSelected() (tea.Model, tea.Cmd) {
 	mode := m.selMode
 	m.sel = nil
 	m.palFilter = ""
-	if mode == "model" {
-		prov, mod := splitRef(it.value)
-		m.st.Sess.Provider, m.st.Sess.Model = prov, mod
-		saveSessionModel(m.st)
-		return m, tea.Println(styleNotice.Render("Session model → " + it.value))
-	}
-	if mode == "login" {
-		d := newAuthDialog(it.value)
-		m.auth = &d
-		return m, nil
-	}
 	if mode == "logout" {
 		nm, cmd := m.removeStoredKey(it.value)
 		return nm, cmd
@@ -415,28 +454,6 @@ func (m *model) selectorView() string {
 }
 
 // ---------- approval card ----------
-
-// authCard is the Pi-style login dialog: titled box, masked key prompt.
-func (m *model) authCard() string {
-	a := m.auth
-	var b strings.Builder
-	b.WriteString(stylePromptBar.Render(strings.Repeat("─", m.width)))
-	b.WriteString("\n")
-	b.WriteString(" " + styleModalTitle.Render("Login to "+providerDisplay(a.provider)))
-	b.WriteString("\n\n")
-	b.WriteString(" " + styleAssistant.Render("Enter "+providerDisplay(a.provider)+" API key"))
-	b.WriteString("\n")
-	b.WriteString(" " + a.input.View())
-	if a.err != "" {
-		b.WriteString("\n")
-		b.WriteString(" " + styleError.Render(a.err))
-	}
-	b.WriteString("\n\n")
-	b.WriteString(" " + styleFooterHint.Render("(esc to cancel, enter to submit)"))
-	b.WriteString("\n")
-	b.WriteString(stylePromptBar.Render(strings.Repeat("─", m.width)))
-	return b.String()
-}
 
 func providerDisplay(p string) string {
 	switch p {

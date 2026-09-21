@@ -36,6 +36,14 @@ type SessionCtx struct {
 	Width int
 	// SwitchSession, when set (TUI), switches the live session in place.
 	SwitchSession func(s *csession.Session) error
+	// ScopedModels returns the live scoped-model state.
+	ScopedModels func() ScopedModels
+	// SetScopedModels replaces the scoped-model state (session + persisted).
+	SetScopedModels func(ids []string) error
+	// OpenScopedModels, when set (TUI), opens the interactive selector.
+	OpenScopedModels func()
+	// OpenModelSelector, when set (TUI), opens the interactive model selector.
+	OpenModelSelector func(search string)
 }
 
 func (s *SessionCtx) Printf(format string, a ...any) { s.Out(format, a...) }
@@ -47,12 +55,12 @@ func Registry() []*Command {
 		{Name: "status", Description: "Provider, model, profile, pending approvals, counts", Handler: cmdStatus},
 		{Name: "profile", Description: "Show profile summary", Handler: cmdProfile},
 		{Name: "cv", Description: "Show CV/resume and citable items", Handler: cmdCV},
-		{Name: "models", Description: "Show model catalog (registry, cached + discovered)", Handler: cmdModels},
-		{Name: "model", Description: "Switch conversation model: /model [provider/model]", ArgHint: "[provider/model]", Handler: cmdModel},
+		{Name: "scoped-models", Description: "Enable/disable & order models for Ctrl+P cycling (Ctrl+S saves)", Handler: cmdScopedModels},
+		{Name: "model", Description: "Select conversation model (opens selector UI)", ArgHint: "<provider/model>", Handler: cmdModel},
 		{Name: "thinking", Description: "Set reasoning level: /thinking <off|low|medium|high|max>", ArgHint: "<level>", Handler: cmdThinking},
 		{Name: "providers", Description: "Show provider availability", Handler: cmdProviders},
-		{Name: "login", Description: "Store a provider API key (masked): /login <openai|anthropic|deepseek>", ArgHint: "<provider>", Handler: cmdLogin},
-		{Name: "logout", Description: "Remove a stored provider key: /logout <provider>", ArgHint: "<provider>", Handler: cmdLogout},
+		{Name: "login", Description: "Connect a provider (staged: method → provider → masked key)", ArgHint: "[provider]", Handler: cmdLogin},
+		{Name: "logout", Description: "Remove a stored provider key", Handler: cmdLogout},
 		{Name: "sources", Description: "Work sources and capabilities", Handler: cmdSources},
 		{Name: "skills", Description: "List agent skills (workflows)", Handler: cmdSkills},
 		{Name: "tools", Description: "List agent tools and permission classes", Handler: cmdTools},
@@ -363,34 +371,6 @@ func cmdFeedback(ctx *SessionCtx, args string) error {
 	}
 	ctx.Printf("Feedback recorded (%s). It becomes explicit preference data, not hidden model behavior.\n", parts[1])
 	return nil
-}
-
-func cmdModels(ctx *SessionCtx, args string) error {
-	ctx.Printf("Roles → provider/model (conversation uses session model):\n")
-	for _, role := range []string{"screening", "analysis", "proposal", "conversation", "deep_analysis"} {
-		r := ctx.Core.Cfg.Models[role]
-		mark := ""
-		if role == "conversation" {
-			mark = fmt.Sprintf("  [session: %s/%s]", ctx.Session.Provider, ctx.Session.Model)
-		}
-		ctx.Printf("  %-13s %s/%s%s\n", role, r.Provider, r.Model, mark)
-	}
-	ctx.Printf("\nCatalog (builtin + cached + local Ollama; `scout models refresh` to update):\n")
-	for _, m := range ctx.Core.Registry().List(ctxBg(), "") {
-		ctx.Printf("  %-22s ctx=%s reasoning=%s tools=%v src=%s\n",
-			m.Provider+"/"+m.ID, ctxInt(m.Context), m.Reasoning, m.Tools, m.Source)
-	}
-	return nil
-}
-
-func ctxInt(n int) string {
-	if n == 0 {
-		return "unknown"
-	}
-	if n >= 1000 {
-		return fmt.Sprintf("%dk", n/1000)
-	}
-	return fmt.Sprintf("%d", n)
 }
 
 func cmdThinking(ctx *SessionCtx, args string) error {

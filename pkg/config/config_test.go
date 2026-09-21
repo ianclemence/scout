@@ -22,3 +22,22 @@ func TestLoadFileAndEnv(t *testing.T) {
 		t.Fatal("file models not applied")
 	}
 }
+
+func TestSaveRolesRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	t.Setenv("SCOUT_CONFIG", path)
+	// Seed an unrelated field so we can verify SaveRoles preserves it.
+	os.WriteFile(path, []byte(`{"ollama_host":"http://keep:11434"}`), 0o600)
+
+	if err := SaveRoles(map[string]LLMRole{"conversation": {Provider: "moonshot", Model: "kimi-k3"}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Load()
+	if cfg.Models["conversation"].Provider != "moonshot" || cfg.Models["conversation"].Model != "kimi-k3" {
+		t.Fatalf("role not persisted: %+v", cfg.Models["conversation"])
+	}
+	if cfg.OllamaHost != "http://keep:11434" {
+		t.Fatalf("existing fields not preserved: %s", cfg.OllamaHost)
+	}
+}

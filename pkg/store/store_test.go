@@ -40,3 +40,35 @@ func TestUniqueSourceOpp(t *testing.T) {
 		t.Fatal("expected unique(source, source_opp_id) violation for dedup")
 	}
 }
+
+func TestSettingsRoundTrip(t *testing.T) {
+	db, err := Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, ok, err := db.GetSetting("missing"); err != nil || ok {
+		t.Fatalf("missing key: ok=%v err=%v", ok, err)
+	}
+	if err := db.SetSetting("scoped_models", `["a/b"]`); err != nil {
+		t.Fatal(err)
+	}
+	v, ok, err := db.GetSetting("scoped_models")
+	if err != nil || !ok || v != `["a/b"]` {
+		t.Fatalf("get after set: %q ok=%v err=%v", v, ok, err)
+	}
+	// Upsert overwrites.
+	if err := db.SetSetting("scoped_models", `["c/d"]`); err != nil {
+		t.Fatal(err)
+	}
+	if v, _, _ := db.GetSetting("scoped_models"); v != `["c/d"]` {
+		t.Fatalf("upsert failed: %q", v)
+	}
+	if err := db.DeleteSetting("scoped_models"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, _ := db.GetSetting("scoped_models"); ok {
+		t.Fatal("delete failed")
+	}
+}

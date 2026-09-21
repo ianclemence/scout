@@ -145,3 +145,42 @@ func Load() Config {
 	}
 	return cfg
 }
+
+// ConfigPath returns the active config file path ($SCOUT_CONFIG or the default).
+func ConfigPath() string {
+	if v := os.Getenv("SCOUT_CONFIG"); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "scout", "config.json")
+}
+
+// SaveRoles persists the role → provider/model map into the config file,
+// preserving other existing fields when present.
+func SaveRoles(models map[string]LLMRole) error {
+	path := ConfigPath()
+	if path == "" {
+		return nil
+	}
+	fc := FileConfig{}
+	if raw, err := os.ReadFile(path); err == nil {
+		_ = json.Unmarshal(raw, &fc)
+	}
+	if fc.Models == nil {
+		fc.Models = map[string]LLMRole{}
+	}
+	for k, v := range models {
+		fc.Models[k] = v
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(fc, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
+}

@@ -52,6 +52,18 @@ var (
 	styleModelCloud = lipgloss.NewStyle().Foreground(cBlue).Bold(true)
 	styleModelPod   = lipgloss.NewStyle().Foreground(cMuted).Bold(true)
 
+	// Model selectors (/model, /scoped-models).
+	styleModelScopeTitle    = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	styleModelScopeHint     = lipgloss.NewStyle().Foreground(cMuted)
+	styleModelScopeFooter   = lipgloss.NewStyle().Foreground(cFaint)
+	styleModelScopeActive   = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	styleModelScopeInactive = lipgloss.NewStyle().Foreground(cMuted)
+	styleModelScopeWarn     = lipgloss.NewStyle().Foreground(cGold)
+	styleModelSearch        = lipgloss.NewStyle().Foreground(cInk)
+	styleModelEnabled       = lipgloss.NewStyle().Foreground(cAccent)
+	styleModelCurrent       = lipgloss.NewStyle().Foreground(cAccent)
+	styleModelUnavail       = lipgloss.NewStyle().Foreground(cMuted).Strikethrough(true)
+
 	// Composer rules keep the idle bar color; only status is accented.
 	stylePromptBar     = lipgloss.NewStyle().Foreground(lipgloss.Color("#6e648a"))
 	styleApprovalBar   = lipgloss.NewStyle().Foreground(cGold)

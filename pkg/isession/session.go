@@ -38,6 +38,15 @@ type ReplState struct {
 	Sess     *csession.Session
 	LastOpps []domain.Opportunity
 	History  []llm.Message // in-memory conversation context for the agent
+	// ScopedModels is the session-local set/order of models available for
+	// cycling. Loaded from app_settings at startup; changed by /scoped-models.
+	ScopedModels ScopedModels
+	// OpenScopedModels, when set (TUI), opens the interactive scoped-model
+	// selector instead of the line-mode fallback.
+	OpenScopedModels func()
+	// OpenModelSelector, when set (TUI), opens the interactive model selector
+	// instead of the line-mode fallback. The argument pre-fills the search.
+	OpenModelSelector func(search string)
 	// Out receives command output. Defaults to stdout printing.
 	Out func(format string, a ...any)
 	// Width is the terminal width for command output (0 = unknown).
@@ -59,8 +68,25 @@ func (r *ReplState) ctx() *SessionCtx {
 		SetLastOpps: func(opps []domain.Opportunity) {
 			r.LastOpps = opps
 		},
+		ScopedModels:      func() ScopedModels { return r.ScopedModels },
+		SetScopedModels:   r.setScopedModels,
+		OpenScopedModels:  r.OpenScopedModels,
+		OpenModelSelector: r.OpenModelSelector,
 	}
 }
+
+// SetScopedModels updates the in-memory selection and persists it. It is the
+// exported entry point used by the TUI selector.
+func (r *ReplState) SetScopedModels(ids []string) error {
+	if err := SaveScopedModels(r.Core, ids); err != nil {
+		return err
+	}
+	r.ScopedModels.Set(ids)
+	return nil
+}
+
+// setScopedModels is the command-layer alias.
+func (r *ReplState) setScopedModels(ids []string) error { return r.SetScopedModels(ids) }
 
 // Dispatch runs a slash command line (without leading "/") against the state.
 // It is shared by the line-mode loop and the full-screen TUI.
@@ -91,7 +117,7 @@ func (r *ReplState) resolveOpp(ref string) (*domain.Opportunity, error) {
 
 // Run starts the interactive session. Bare `scout` enters here.
 func Run(core *runtime.Core, sess *csession.Session) error {
-	st := &ReplState{Core: core, Sess: sess}
+	st := &ReplState{Core: core, Sess: sess, ScopedModels: LoadScopedModels(core)}
 	// Restore recent context for continuity.
 	if msgs, err := csession.LoadMessages(core.DB, sess.ID, 20); err == nil {
 		for _, m := range msgs {

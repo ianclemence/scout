@@ -18,7 +18,7 @@ import (
 	"github.com/ledongthuc/pdf"
 )
 
-// MaxBytes caps parsed files (Pi SD-card friendly).
+// MaxBytes caps parsed files (device-friendly).
 const MaxBytes = 20 << 20
 
 // ParseFile detects format from extension and extracts text.
