@@ -3,6 +3,14 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.7.3] - 2026-09-21
+
+Transcript styling release.
+
+- Removed the Today/Yesterday/date dividers from the Scout transcript.
+- Entries flush as one block separated by a blank line, matching the reference terminal UI.
+- Command output stays a quiet notice entry, distinct from model replies.
+
 ## [0.7.2] - 2026-09-21
 
 Response rendering release.
