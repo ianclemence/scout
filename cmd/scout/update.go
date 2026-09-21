@@ -191,6 +191,11 @@ func releaseChannelUpdate(opts updateOptions, current string) error {
 		if err := client.Download(asset.URL, staged); err != nil {
 			return err
 		}
+		// Release assets are stored without the executable bit; make the
+		// staged binary runnable before the checksum and smoke test.
+		if err := os.Chmod(staged, 0o755); err != nil {
+			return err
+		}
 		if sum, ok := findAsset(rel, "checksums"); ok {
 			sumPath := filepath.Join(stage, sum.Name)
 			if err := client.Download(sum.URL, sumPath); err == nil {
