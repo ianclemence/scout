@@ -12,6 +12,7 @@ import (
 	"github.com/ianclemence/scout/pkg/approve"
 	"github.com/ianclemence/scout/pkg/config"
 	"github.com/ianclemence/scout/pkg/docparse"
+	"github.com/ianclemence/scout/pkg/domain"
 )
 
 // Permission classes, from least to most consequential. The runtime
@@ -139,6 +140,62 @@ func (c *Core) Tools() []*Tool {
 					return "", err
 				}
 				return toJSON(map[string]any{"filter_pass": f.Pass, "filter_reason": f.Reason, "evaluation": ev}), nil
+			}},
+		{Name: "analyze_opportunities", Permission: PermAnalyze, Description: "Evaluate many stored opportunities in one fast, ranked pass (deterministic filter + heuristic match, no per-item LLM call). Omit ids to evaluate every stored opportunity, so the user gets the full picture instead of a sample. Results are sorted best-first.", ArgsHint: `{"ids": ["opp-..."], "status": "", "limit": 50}`, ArgsSchema: map[string]string{"ids": "[]string", "status": "string", "limit": "number"}, ReadOnly: true, Timeout: 5 * time.Minute,
+			Handler: func(ctx context.Context, args map[string]any) (string, error) {
+				ids := strList(args, "ids")
+				if len(ids) == 0 {
+					opps, err := c.ListOpportunities(OpportunityFilter{Status: str(args, "status"), Limit: num(args, "limit", 50)})
+					if err != nil {
+						return "", err
+					}
+					for _, o := range opps {
+						ids = append(ids, o.ID)
+					}
+				}
+				type row struct {
+					ID             string `json:"id"`
+					Title          string `json:"title,omitempty"`
+					Recommendation string `json:"recommendation,omitempty"`
+					Rank           int    `json:"rank"`
+					Reason         string `json:"reason,omitempty"`
+					Err            string `json:"error,omitempty"`
+				}
+				out := make([]row, 0, len(ids))
+				var skipped int
+				for _, id := range ids {
+					if err := ctx.Err(); err != nil {
+						// The pass was cut short; report how many were left so the
+						// agent never presents a partial set as complete.
+						skipped = len(ids) - len(out)
+						break
+					}
+					r := row{ID: id}
+					if o, err := c.GetOpportunity(id); err == nil {
+						r.Title = o.Title
+					}
+					ev, _, err := c.AnalyzeFast(id)
+					if err != nil {
+						r.Err = err.Error()
+						out = append(out, r)
+						continue
+					}
+					if ev != nil {
+						r.Recommendation = ev.Recommendation
+						r.Rank = matchRank(ev)
+						r.Reason = truncate(ev.Reason, 160)
+					}
+					out = append(out, r)
+				}
+				// Sort best-first: apply above review above ignore, then by the
+				// summed dimension strength so strong fits lead within a tier.
+				sort.SliceStable(out, func(i, j int) bool { return out[i].Rank > out[j].Rank })
+				res := map[string]any{"evaluated": len(out), "total_requested": len(ids), "results": out}
+				if skipped > 0 {
+					res["skipped"] = skipped
+					res["note"] = "pass cut short; call again for the remaining ids"
+				}
+				return toJSON(res), nil
 			}},
 		{Name: "prepare_proposal", Permission: PermDraft, Description: "Draft a tailored proposal (draft only, no external writes).", ArgsHint: `{"id": "opp-..."}`, ReadOnly: false,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
@@ -285,6 +342,23 @@ func toJSON(v any) string {
 		return `{"error":"encode failed"}`
 	}
 	return string(b)
+}
+
+// matchRank orders opportunities best-first for the batch tool. The
+// recommendation tier dominates; within a tier, stronger dimension ratings
+// sort higher so the best fit in each tier leads. It returns a single scalar
+// so a plain numeric sort is enough.
+func matchRank(ev *domain.MatchEvaluation) int {
+	if ev == nil {
+		return 0
+	}
+	tier := map[string]int{"ignore": 0, "review": 1, "apply": 2}
+	r := tier[strings.ToLower(ev.Recommendation)] * 100
+	strength := map[string]int{"unacceptable": 0, "weak": 1, "moderate": 2, "good": 3, "strong": 4}
+	for _, d := range ev.Dimensions {
+		r += strength[strings.ToLower(d.Rating)]
+	}
+	return r
 }
 
 var _ = approve.List

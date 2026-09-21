@@ -3,6 +3,37 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.12.0] - 2026-09-22
+
+Readable streaming and complete answers.
+
+- **The live reply is readable as it forms.** The dock now grows a multi-line
+  markdown block instead of showing one flattened tail line, and the block is
+  bounded so it never pushes the composer around. Renders are coalesced on a
+  frame tick, so a fast token stream cannot flicker the frame.
+- **Narration no longer masquerades as the answer.** In a multi-turn tool loop,
+  each turn's prose previously concatenated with the next, so the transcript
+  read as a wall of "Let me pull your CV…". The live buffer now resets each
+  turn; a turn's prose segment is sealed when a tool starts, and only the turn
+  that ends without a tool call is committed as the answer. Per-turn preambles
+  are shown live and then discarded, never stored as findings.
+- **`analyze_opportunities`: evaluate every stored opportunity in one pass.**
+  A new batch tool runs the deterministic filter and heuristic match over all
+  stored opportunities, returns a compact best-first ranked table, and defers
+  the slow per-item model enrichment to shortlisted items — so a broad request
+  cannot time out or be answered with a sample. `analyze_opportunity` (single)
+  is unchanged.
+- **Completeness is now a rule.** When the user asks for the full picture, the
+  agent must evaluate every stored candidate, not a sample, and must not end
+  its turn by asking permission to continue routine read-only work. The 4 KB
+  tool-result context cap was raised to 12 KB; when it clips, it now says so
+  explicitly rather than dropping the tail silently.
+- **Honest budget ranking.** `apply` now requires strong skills, no risk
+  signals, and a known, verified budget. With no rate floor configured, pay is
+  reported as `unverified` instead of a false "acceptable", the top tier is
+  capped, and the agent states that it cannot filter on pay — and offers to set
+  a floor rather than inventing one.
+
 ## [0.11.1] - 2026-09-21
 
 Learning-signal refinement.

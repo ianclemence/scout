@@ -46,6 +46,11 @@ type entry struct {
 // evMsg carries runtime agent events into Update.
 type evMsg struct{ ev runtime.Event }
 
+// flushMsg requests a coalesced repaint of the live dock. Token events mark the
+// dirty flag; this tick is what actually schedules a frame, so a fast stream
+// cannot force one render per token (which flickers on a full-screen dock).
+type flushMsg struct{}
+
 type turnDoneMsg struct {
 	final string
 	dur   time.Duration
@@ -80,27 +85,39 @@ type selItem struct {
 }
 
 type model struct {
-	st        *isession.ReplState
-	ta        textarea.Model
-	prog      *tea.Program
-	entries   []entry
-	width     int
-	height    int
-	ready     bool
-	working   bool
-	turnFrom  time.Time
-	stream    strings.Builder
+	st       *isession.ReplState
+	ta       textarea.Model
+	prog     *tea.Program
+	entries  []entry
+	width    int
+	height   int
+	ready    bool
+	working  bool
+	turnFrom time.Time
+	// stream holds the prose of the turn currently in flight. It is reset at
+	// every turn_start so one turn's narration can never concatenate with the
+	// next (the bug that produced a wall of "Let me pull…" preambles).
+	stream strings.Builder
+	// answer holds the final answer segment — the one turn that ended without
+	// a tool call. Only this is committed to the transcript; per-turn
+	// preambles are process narration and are discarded once superseded.
+	answer strings.Builder
+	// answerSet reports whether the final answer has been captured this run.
+	answerSet bool
 	toolLine  string
 	toolName  string
 	tools     int
 	turns     int
-	spin      int
-	cancel    context.CancelFunc
-	sel       *selector
-	selMode   string // palette, login, logout
-	palFilter string
-	login     *loginFlowUI
-	approval  *pendingApproval
+	// streamDirty is set when a token arrives and cleared on the coalesced
+	// flush tick; while dirty the dock keeps the last rendered frame.
+	streamDirty bool
+	spin        int
+	cancel      context.CancelFunc
+	sel         *selector
+	selMode     string // palette, login, logout
+	palFilter   string
+	login       *loginFlowUI
+	approval    *pendingApproval
 	// mcpLogin/mcpFlow track an in-flight MCP OAuth sign-in.
 	mcpLogin      *mcpLoginUI
 	mcpFlow       *mcpauth.Flow
@@ -211,6 +228,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tickSpin()
 		}
 		return m, nil
+	case flushMsg:
+		m.streamDirty = false
+		return m, nil
 	case welcomeMsg:
 		// Release notes are available on demand (/changelog, `scout update`);
 		// they are deliberately not injected into the welcome card.
@@ -231,6 +251,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func tickSpin() tea.Cmd {
 	return tea.Tick(120*time.Millisecond, func(time.Time) tea.Msg { return spinTickMsg{} })
+}
+
+// tickFlush schedules a coalesced repaint of the live dock. Each token marks
+// the stream dirty; at most one frame is scheduled per interval, so a burst of
+// tokens becomes one render instead of hundreds.
+func tickFlush() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return flushMsg{} })
 }
 
 // layoutComposer grows the composer with content, capped like a real editor.
@@ -612,6 +639,9 @@ func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 	m.working = true
 	m.turnFrom = time.Now()
 	m.stream.Reset()
+	m.answer.Reset()
+	m.answerSet = false
+	m.streamDirty = false
 	m.toolLine = ""
 	m.toolName = ""
 	m.tools = 0
@@ -637,20 +667,29 @@ func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 		})
 		prog.Send(turnDoneMsg{final: final.String(), dur: time.Since(m.turnFrom)})
 	}()
-	return m, tea.Batch(printUser, tickSpin())
+	return m, tea.Batch(printUser, tickSpin(), tickFlush())
 }
 
 func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 	switch ev.Type {
 	case "turn_start":
+		// A new turn starts a fresh prose segment. Without this reset, every
+		// turn's narration accumulated into one blob and was shown as if it
+		// were a single answer.
+		m.stream.Reset()
 		m.toolLine = ""
 		m.toolName = ""
 	case "token":
 		m.stream.WriteString(ev.Text)
+		// Coalesce renders: mark dirty and let the frame tick repaint, rather
+		// than scheduling a render for every token.
+		if !m.streamDirty {
+			m.streamDirty = true
+		}
 	case "tool_start":
-		// The loop filters tool fences out of the token stream; defensively
-		// drop any buffered preview that still contains one so tool machinery
-		// can never linger on screen. The composer names the activity instead.
+		// The turn's prose ended where the tool call began: this segment is
+		// process narration, not the answer, so it is superseded rather than
+		// accumulated. Defensively drop any buffered tool fence too.
 		if strings.Contains(m.stream.String(), "```tool") {
 			m.stream.Reset()
 		}
@@ -661,6 +700,12 @@ func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 		m.toolName = ""
 	case "skill":
 		m.toolLine = "skill: " + ev.Name
+	case "agent_end":
+		// The loop only reaches agent_end when a turn produced no tool call:
+		// this is the answer. Capture it as the committed text.
+		m.answer.Reset()
+		m.answer.WriteString(ev.Text)
+		m.answerSet = true
 	case "error":
 		m.println(entry{kind: eErr, text: ev.Err.Error(), at: time.Now()})
 	}
@@ -670,22 +715,31 @@ func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd) {
 	m.working = false
 	m.cancel = nil
-	if strings.TrimSpace(final) == "" {
+	// Prefer the text captured from agent_end: that is the turn with no tool
+	// call. The loop's return value is a fallback for paths that bypass the
+	// event (or an interrupted run).
+	commit := strings.TrimSpace(m.answer.String())
+	if commit == "" {
+		commit = strings.TrimSpace(final)
+	}
+	if commit == "" {
 		if n := len(m.st.History); n > 0 {
 			m.st.History = m.st.History[:n-1]
 		}
 		m.stream.Reset()
+		m.answer.Reset()
+		m.answerSet = false
 		return m, m.flushCmds()
 	}
-	m.st.History = append(m.st.History, llm.Message{Role: "assistant", Content: final})
+	m.st.History = append(m.st.History, llm.Message{Role: "assistant", Content: commit})
 	_ = csession.AppendMessages(m.st.Core.DB, m.st.Sess.ID, []csession.Message{
-		{Role: "assistant", Content: final},
+		{Role: "assistant", Content: commit},
 	})
 	if len(m.st.History) > 40 {
 		m.st.History = m.st.History[len(m.st.History)-40:]
 	}
 	m.turns++
-	m.println(entry{kind: eScout, text: final, dur: dur, at: time.Now()})
+	m.println(entry{kind: eScout, text: commit, dur: dur, at: time.Now()})
 	csession.Touch(m.st.Core.DB, m.st.Sess.ID, m.st.Sess.Provider, m.st.Sess.Model)
 	flush := m.flushCmds()
 	// Inline approval card for newly created pending actions.
@@ -694,6 +748,9 @@ func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd)
 		m.approval = &pendingApproval{id: p.ID, title: p.ActionType + " → " + p.Target, risk: p.RiskLevel}
 	}
 	m.stream.Reset()
+	m.answer.Reset()
+	m.answerSet = false
+	m.streamDirty = false
 	return m, flush
 }
 

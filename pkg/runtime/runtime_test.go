@@ -294,3 +294,29 @@ func TestPromptInjectionLabeledUntrusted(t *testing.T) {
 		t.Fatalf("loop must recover from hostile tool names: %v", err)
 	}
 }
+
+// TestBatchAnalyzeCoversEveryStoredOpportunity ensures the completeness tool
+// evaluates all stored opportunities in one call, so a broad request cannot be
+// answered with a sample. This is the fix for "evaluated 4 of 20 and asked".
+func TestBatchAnalyzeCoversEveryStoredOpportunity(t *testing.T) {
+	c := testCore(t)
+	for i := 0; i < 5; i++ {
+		if _, err := c.AddOpportunity("Role", "Build a Go service for clients.", "go"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tool := c.FindTool("analyze_opportunities")
+	if tool == nil {
+		t.Fatal("analyze_opportunities tool missing")
+	}
+	out, err := tool.Handler(context.Background(), map[string]any{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, `"evaluated":5`) {
+		t.Fatalf("batch tool should evaluate all 5 stored opportunities, got: %s", out)
+	}
+	if !strings.Contains(out, `"recommendation"`) {
+		t.Fatalf("batch tool should return ranked recommendations, got: %s", out)
+	}
+}

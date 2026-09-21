@@ -79,11 +79,10 @@ func HeuristicEvaluate(p *domain.ProfessionalProfile, o *domain.Opportunity) *do
 		skillRating = "moderate"
 	}
 	risks := DetectRisks(o)
+	scope := scopeRating(o)
 	rec := "review"
 	if skillRating == "weak" || len(risks) >= 3 {
 		rec = "ignore"
-	} else if skillRating == "strong" && len(risks) == 0 {
-		rec = "apply"
 	}
 	budget := "acceptable"
 	switch {
@@ -98,20 +97,51 @@ func HeuristicEvaluate(p *domain.ProfessionalProfile, o *domain.Opportunity) *do
 		budget = "unacceptable"
 		rec = "ignore"
 	}
+	// With no floor configured there is nothing to compare against, so a
+	// listing's pay is unverified — reporting it as "acceptable" would be a
+	// false reassurance. Say so instead.
+	var floor float64
+	if o.BudgetType == "hourly" {
+		floor = p.MinHourlyRate
+	} else {
+		floor = p.MinProjectBudget
+	}
+	if budget == "acceptable" && floor <= 0 {
+		budget = "unverified"
+	}
+	// Budget is only "known" when the listing states an amount or a type.
+	// Unknown pay must never lead the shortlist. Scope ambiguity is already a
+	// risk signal (a very short description adds "scope unclear"), so requiring
+	// zero risks also excludes vague listings — without rejecting a concise but
+	// clearly written one. This keeps the top tier discriminating instead of
+	// labelling most of a batch "apply".
+	budgetKnown := o.BudgetType != "" && o.BudgetType != "unknown" && (o.BudgetMax > 0 || o.HourlyRateMax > 0)
+	if rec != "ignore" && skillRating == "strong" && len(risks) == 0 && budgetKnown && budget != "unacceptable" && budget != "unverified" {
+		rec = "apply"
+	}
 	return &domain.MatchEvaluation{
 		ID:            fmt.Sprintf("ev-%d", time.Now().UnixNano()),
 		OpportunityID: o.ID,
 		Dimensions: []domain.MatchDimension{
 			{Name: "skills", Rating: skillRating, Detail: fmt.Sprintf("%d profile terms matched: %s", skillHits, strings.Join(matched, ", "))},
 			{Name: "budget", Rating: budget, Detail: budgetDetail(o, p)},
-			{Name: "scope_clarity", Rating: scopeRating(o), Detail: "heuristic: description length + question marks"},
+			{Name: "scope_clarity", Rating: scope, Detail: "heuristic: description length + question marks"},
 			{Name: "risks", Rating: riskRating(risks), Detail: fmt.Sprintf("%d signals", len(risks))},
 		},
 		Risks:          risks,
 		Recommendation: rec,
-		Reason:         fmt.Sprintf("skills=%s risks=%d", skillRating, len(risks)),
+		Reason:         fmt.Sprintf("skills=%s budget=%s%s scope=%s risks=%d", skillRating, budget, budgetUnknownNote(budgetKnown), scope, len(risks)),
 		CreatedAt:      time.Now().UTC(),
 	}
+}
+
+// budgetUnknownNote flags an unknown budget in the one-line reason so the
+// ranking is explainable at a glance.
+func budgetUnknownNote(known bool) string {
+	if known {
+		return ""
+	}
+	return "(unknown)"
 }
 
 // containsTerm reports whether term occurs in hay as a whole token, not as a
@@ -145,7 +175,13 @@ func isWordByte(b byte) bool {
 
 func budgetDetail(o *domain.Opportunity, p *domain.ProfessionalProfile) string {
 	if o.BudgetType == "hourly" {
+		if p.MinHourlyRate <= 0 {
+			return fmt.Sprintf("hourly %.0f-%.0f vs no floor set", o.HourlyRateMin, o.HourlyRateMax)
+		}
 		return fmt.Sprintf("hourly %.0f-%.0f vs min %.0f", o.HourlyRateMin, o.HourlyRateMax, p.MinHourlyRate)
+	}
+	if p.MinProjectBudget <= 0 {
+		return fmt.Sprintf("fixed %.0f-%.0f vs no floor set", o.BudgetMin, o.BudgetMax)
 	}
 	return fmt.Sprintf("fixed %.0f-%.0f vs min %.0f", o.BudgetMin, o.BudgetMax, p.MinProjectBudget)
 }

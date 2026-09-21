@@ -241,6 +241,28 @@ func (c *Core) Analyze(ctx context.Context, id string, eng *agent.Engine) (*doma
 	return ev, FilterInfo{Pass: f.Pass, Reason: f.Reason}, nil
 }
 
+// AnalyzeFast runs the deterministic filter and heuristic evaluation only — no
+// per-item LLM call. It is the batch path: a full pass over many stored
+// opportunities must finish inside one tool timeout and fit in context, so the
+// slow LLM enrichment is deferred to the shortlisted items. It persists the
+// evaluation exactly like Analyze.
+func (c *Core) AnalyzeFast(id string) (*domain.MatchEvaluation, FilterInfo, error) {
+	o, err := c.GetOpportunityFull(id)
+	if err != nil {
+		return nil, FilterInfo{}, err
+	}
+	p, _ := c.Profile()
+	f := imat.DeterministicFilter(p, o)
+	ev := imat.HeuristicEvaluate(p, o)
+	if pm := c.PreferenceModel(); pm != nil {
+		pm.Adjust(ev, o)
+	}
+	b, _ := json.Marshal(ev)
+	_, _ = c.DB.DB.Exec(`INSERT INTO evaluations(id,opportunity_id,data,created_at) VALUES(?,?,?,?)`, newID("ev"), id, string(b), now())
+	_, _ = c.DB.DB.Exec(`UPDATE opportunities SET status='analyzed', updated_at=? WHERE id=?`, now(), id)
+	return ev, FilterInfo{Pass: f.Pass, Reason: f.Reason}, nil
+}
+
 type FilterInfo struct {
 	Pass   bool
 	Reason string

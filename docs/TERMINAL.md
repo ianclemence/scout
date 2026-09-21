@@ -21,7 +21,7 @@ This document is the design contract for the interactive terminal.
    request to the agent loop with tools.
 4. **The transcript is scrollback; the dock is live.** Committed messages are
    printed once into terminal scrollback (native scroll, copy, search). Only
-   the live region — streaming tail, composer, selector, footer — is redrawn
+   the live region — live answer block, composer, selector, footer — is redrawn
    each frame.
 5. **Consequential actions are cards, never side effects.** Submit, spend,
    send, accept, fund each become a pending approval. The card is inline,
@@ -49,7 +49,7 @@ This document is the design contract for the interactive terminal.
 │                                                            │
 ├───────────────────────────────────────────────────────────┤
 │ dock (redrawn every frame, bottom-anchored)               │
-│   ▍ streaming tail (one line while a turn runs)            │
+│   ▍ live answer block (grows while a turn runs, bounded height) │
 │   ── ▘ Working · 2s ──────────────────────────────────    │
 │   > composer                                                │
 │   ───────────────────────────────────────────────────────  │
@@ -61,10 +61,30 @@ This document is the design contract for the interactive terminal.
 
 - **Committed** = user turns, Scout answers, notices, errors, approval
   decisions. Printed with `tea.Println`, so the terminal owns them.
-- **Live dock** = streaming preview, composer/approval card, one selector,
+- **Live dock** = growing answer block, composer/approval card, one selector,
   stats line, key hints.
 - Exactly one modal (login flow, approval card, model picker, list picker,
   command palette) is active at a time.
+
+### Streaming lifecycle (why the dock behaves this way)
+
+A single user request runs a multi-turn ReAct loop. Each turn streams a short
+prose preamble, then a tool call, then the next turn begins. Two rules keep the
+transcript readable and honest:
+
+- **Segments do not accumulate.** The live buffer resets at every `turn_start`
+  and is superseded at `tool_start`. One turn's narration can never concatenate
+  with the next. (Accumulation produced a single wall of "Let me pull…" text
+  that looked like one answer.)
+- **Only the answer commits.** A turn that ends without a tool call is the
+  answer; that text is captured at `agent_end` and printed once to scrollback.
+  Per-turn preambles are process narration: they are shown live in the dock and
+  then discarded, never committed as if they were findings. The composer's
+  top rule already names the activity.
+- **The live block is bounded.** The dock shows at most a few wrapped lines of
+  the current segment, so a long stream never pushes the composer or footer.
+  Renders are coalesced on a frame tick, so a token burst cannot force one
+  repaint per token.
 
 ---
 

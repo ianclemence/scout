@@ -11,7 +11,7 @@ import (
 // can touch.
 var coreTools = []string{
 	"load_skill", "get_profile", "list_evidence", "search_opportunities",
-	"get_opportunity", "analyze_opportunity", "prepare_proposal",
+	"get_opportunity", "analyze_opportunity", "analyze_opportunities", "prepare_proposal",
 	"request_approval", "list_pending_approvals", "parse_document",
 	"search_learned_preferences", "list_tools",
 }

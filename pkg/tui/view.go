@@ -27,7 +27,7 @@ func (m *model) View() string {
 		return "starting Scout…"
 	}
 	var b strings.Builder
-	// The streaming preview line is only present while a turn is producing
+	// The live assistant block is present only while a turn is producing
 	// text, so the idle dock stays tight.
 	if p := m.dockPreview(); p != "" {
 		b.WriteString(p)
@@ -59,22 +59,37 @@ func (m *model) View() string {
 	return b.String()
 }
 
-// dockPreview is one reserved line above the composer: the tail of the
-// streaming reply while a turn runs, blank when idle. No cursor marker is
-// shown — the assistant text alone is the live preview. Tool internals are
-// never shown here; the live activity is named in the composer's top rule.
+// dockPreview renders the live assistant block above the composer while a turn
+// runs: the prose of the turn in flight, wrapped and markdown-rendered like the
+// committed answer, bounded to a few lines so it never pushes the composer or
+// footer around. It shows the tail of the block (the newest lines) because that
+// is where the reader's eye is while text streams. Blank when idle.
 func (m *model) dockPreview() string {
-	w := m.width
-	if w < 10 {
-		w = 10
-	}
-	if !m.working || m.stream.Len() == 0 {
+	if !m.working {
 		return ""
 	}
-	flat := strings.ReplaceAll(m.stream.String(), "\n", " ")
-	lines := wrap(flat, w)
-	line := lines[len(lines)-1]
-	return styleAssistant.Render(cellTruncate(line, w))
+	prose := strings.TrimSpace(m.stream.String())
+	if prose == "" {
+		return ""
+	}
+	w := m.width
+	if w < 20 {
+		w = 20
+	}
+	// Render the same way the committed answer is rendered, then keep only the
+	// last liveBlockLines so the dock height is constant as text grows.
+	body := RenderMarkdownWidth(prose, w-1)
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	const liveBlockLines = 4
+	if len(lines) > liveBlockLines {
+		lines = lines[len(lines)-liveBlockLines:]
+	}
+	for i, ln := range lines {
+		if ln != "" {
+			lines[i] = " " + ln
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // promptBox is the rule-framed composer: top rule carries live status.

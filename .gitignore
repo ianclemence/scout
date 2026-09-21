@@ -44,3 +44,6 @@ history
 
 # OS
 .DS_Store
+
+# Build-time coding-agent aids (not part of Scout)
+.pi/
