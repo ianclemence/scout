@@ -81,20 +81,23 @@ var (
 	styleWelcomeCmds  = lipgloss.NewStyle().Foreground(cMuted)
 	styleDayDivider   = lipgloss.NewStyle().Foreground(cFaint)
 
-	// Markdown roles.
-	styleMDHead      = lipgloss.NewStyle().Foreground(lipgloss.Color("#9d7cd8")).Bold(true)
-	styleMDHead1     = lipgloss.NewStyle().Foreground(lipgloss.Color("#9d7cd8")).Bold(true).Underline(true)
-	styleMDStrong    = lipgloss.NewStyle().Foreground(lipgloss.Color("#f5a742")).Bold(true)
-	styleMDEmph      = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Italic(true)
-	styleMDQuote     = lipgloss.NewStyle().Foreground(lipgloss.Color("#e5c07b")).Italic(true)
-	styleMDQuoteMark = lipgloss.NewStyle().Foreground(cMuted)
-	styleMDCode      = lipgloss.NewStyle().Foreground(lipgloss.Color("#7fd88f"))
-	styleMDCodeBlock = lipgloss.NewStyle().Foreground(cInk)
-	styleMDList      = lipgloss.NewStyle().Foreground(lipgloss.Color("#fab283"))
-	styleMDEnum      = lipgloss.NewStyle().Foreground(lipgloss.Color("#56b6c2"))
-	styleMDCheck     = lipgloss.NewStyle().Foreground(lipgloss.Color("#7fd88f"))
+	// Markdown roles, mapped to Scout brand tokens (accent = identity,
+	// gold = headings/emphasis, green = code, muted = quotes/meta). This
+	// keeps model responses on-palette rather than importing foreign hexes.
+	styleMDHead      = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
+	styleMDHead1     = lipgloss.NewStyle().Foreground(cAccent).Bold(true).Underline(true)
+	styleMDStrong    = lipgloss.NewStyle().Foreground(cGold).Bold(true)
+	styleMDEmph      = lipgloss.NewStyle().Foreground(cGold).Italic(true)
+	styleMDQuote     = lipgloss.NewStyle().Foreground(cMuted).Italic(true)
+	styleMDQuoteMark = lipgloss.NewStyle().Foreground(cAccent)
+	styleMDCode      = lipgloss.NewStyle().Foreground(cGreen)
+	styleMDCodeBlock = lipgloss.NewStyle().Foreground(cGreen)
+	styleMDList      = lipgloss.NewStyle().Foreground(cAccent)
+	styleMDEnum      = lipgloss.NewStyle().Foreground(cAccent)
+	styleMDCheck     = lipgloss.NewStyle().Foreground(cGreen)
 	styleMDUncheck   = lipgloss.NewStyle().Foreground(cMuted)
-	styleMDLinkText  = lipgloss.NewStyle().Foreground(lipgloss.Color("#56b6c2")).Underline(true)
+	styleMDLinkText  = lipgloss.NewStyle().Foreground(cBlue).Underline(true)
+	styleMDTableHead = lipgloss.NewStyle().Foreground(cAccent).Bold(true)
 
 	// Legacy aliases kept for compat within package.
 	styleUserLabel   = styleUserName

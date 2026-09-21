@@ -2,12 +2,18 @@ package tui
 
 import (
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
-// RenderMarkdown renders assistant text: headings, bold, italic, inline
-// code, fenced code, lists, ordered lists, task items, quotes, links,
-// tables. Plain paragraphs pass through untouched.
-func RenderMarkdown(s string) string {
+// RenderMarkdown renders assistant text at the given content width:
+// headings, bold, italic, inline code, fenced code, lists, ordered lists,
+// task items, quotes, links, tables. Prose is word-wrapped to width (never
+// truncated); fenced code and tables keep their own layout.
+func RenderMarkdownWidth(s string, width int) string {
+	if width < 20 {
+		width = 80
+	}
 	lines := strings.Split(s, "\n")
 	var b strings.Builder
 	inFence := false
@@ -22,7 +28,9 @@ func RenderMarkdown(s string) string {
 			continue
 		}
 		if inFence {
-			b.WriteString(styleMDCodeBlock.Render(line) + "\n")
+			for _, wl := range wrap(line, width) {
+				b.WriteString(styleMDCodeBlock.Render(wl) + "\n")
+			}
 			i++
 			continue
 		}
@@ -41,28 +49,69 @@ func RenderMarkdown(s string) string {
 		}
 		switch {
 		case strings.HasPrefix(ts, "### "):
-			b.WriteString(styleMDHead.Render(strings.TrimPrefix(ts, "### ")) + "\n")
+			b.WriteString(inlineStyledBlock(strings.TrimPrefix(ts, "### "), styleMDHead, width) + "\n")
 		case strings.HasPrefix(ts, "## "):
-			b.WriteString(styleMDHead.Render(strings.TrimPrefix(ts, "## ")) + "\n")
+			b.WriteString(inlineStyledBlock(strings.TrimPrefix(ts, "## "), styleMDHead, width) + "\n")
 		case strings.HasPrefix(ts, "# "):
-			b.WriteString(styleMDHead1.Render(strings.TrimPrefix(ts, "# ")) + "\n")
+			b.WriteString(inlineStyledBlock(strings.TrimPrefix(ts, "# "), styleMDHead1, width) + "\n")
 		case strings.HasPrefix(ts, "> "):
-			b.WriteString(styleMDQuoteMark.Render("│ ") + styleMDQuote.Render(inline(strings.TrimPrefix(ts, "> "))) + "\n")
+			b.WriteString(wrapPrefixed(inline(strings.TrimPrefix(ts, "> ")), styleMDQuoteMark.Render("│ "), width, styleMDQuote) + "\n")
 		case strings.HasPrefix(ts, "- [x] ") || strings.HasPrefix(ts, "- [X] "):
-			b.WriteString(styleMDCheck.Render("✓ ") + inline(ts[6:]) + "\n")
+			b.WriteString(wrapPrefixed(inline(ts[6:]), styleMDCheck.Render("✓ "), width, lipgloss.NewStyle()) + "\n")
 		case strings.HasPrefix(ts, "- [ ] "):
-			b.WriteString(styleMDUncheck.Render("○ ") + inline(ts[6:]) + "\n")
+			b.WriteString(wrapPrefixed(inline(ts[6:]), styleMDUncheck.Render("○ "), width, lipgloss.NewStyle()) + "\n")
 		case strings.HasPrefix(ts, "- ") || strings.HasPrefix(ts, "* "):
-			b.WriteString(styleMDList.Render("• ") + inline(ts[2:]) + "\n")
+			b.WriteString(wrapPrefixed(inline(ts[2:]), styleMDList.Render("• "), width, lipgloss.NewStyle()) + "\n")
 		case isOrderedList(ts):
 			dot := strings.Index(ts, ".")
-			b.WriteString(styleMDEnum.Render(ts[:dot+1]) + inline(strings.TrimSpace(ts[dot+1:])) + "\n")
+			b.WriteString(wrapPrefixed(inline(strings.TrimSpace(ts[dot+1:])), styleMDEnum.Render(ts[:dot+1])+" ", width, lipgloss.NewStyle()) + "\n")
 		default:
-			b.WriteString(inline(line) + "\n")
+			// Plain prose: wrap the raw line, then apply inline styling per
+			// wrapped line so bold/code survive the wrap.
+			b.WriteString(inlineStyledBlock(line, lipgloss.NewStyle(), width) + "\n")
 		}
 		i++
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// RenderMarkdown renders assistant text wrapping at a sane default width.
+// Prefer RenderMarkdownWidth from the renderer, which knows the terminal.
+func RenderMarkdown(s string) string { return RenderMarkdownWidth(s, 80) }
+
+// inlineStyledBlock wraps raw markdown source to width, applies inline
+// formatting per wrapped line, and styles each line with blockStyle. Wrapping
+// the source (not the styled output) keeps bold/code intact and avoids
+// splitting ANSI escapes.
+func inlineStyledBlock(src string, blockStyle lipgloss.Style, width int) string {
+	lines := wrap(src, width)
+	var out []string
+	for _, ln := range lines {
+		out = append(out, blockStyle.Render(inline(ln)))
+	}
+	return strings.Join(out, "\n")
+}
+
+// wrapPrefixed wraps already-inline-rendered text to width, prefixing the
+// first line with prefix and indenting continuation lines to match. The
+// lineStyle wraps the wrapped segments of the running text (commentary), not
+// the prefix.
+func wrapPrefixed(text, prefix string, width int, lineStyle lipgloss.Style) string {
+	indent := strings.Repeat(" ", lipgloss.Width(prefix))
+	avail := width - lipgloss.Width(prefix)
+	if avail < 10 {
+		avail = 10
+	}
+	lines := wrapANSI(text, avail)
+	if len(lines) == 0 {
+		return prefix
+	}
+	var b strings.Builder
+	b.WriteString(prefix + lineStyle.Render(lines[0]))
+	for _, ln := range lines[1:] {
+		b.WriteString("\n" + indent + lineStyle.Render(ln))
+	}
+	return b.String()
 }
 
 func isOrderedList(s string) bool {

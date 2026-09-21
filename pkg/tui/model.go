@@ -10,7 +10,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/ianclemence/scout/pkg/changelog"
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/isession"
 	"github.com/ianclemence/scout/pkg/llm"
@@ -140,25 +139,6 @@ func (m *model) welcomeCmd() tea.Cmd {
 
 type welcomeMsg struct{}
 
-type whatsNewMsg struct{ notes string }
-
-// whatsNewCmd surfaces changelog entries the user has not seen yet (recorded
-// by `scout update`). A fresh install records the current version and shows
-// nothing, so old history never greets a new user.
-func (m *model) whatsNewCmd() tea.Cmd {
-	return func() tea.Msg {
-		entries := changelog.NewSince(m.st.Core.Cfg.DataDir, version.Version)
-		if len(entries) == 0 {
-			return nil
-		}
-		var b strings.Builder
-		for _, e := range entries {
-			fmt.Fprintf(&b, "What's new in %s\n\n%s\n\n", e.Version, e.Body)
-		}
-		return whatsNewMsg{notes: strings.TrimRight(b.String(), "\n")}
-	}
-}
-
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -182,10 +162,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case welcomeMsg:
-		return m, tea.Batch(tea.Println(m.welcomeCard()), m.whatsNewCmd())
-	case whatsNewMsg:
-		m.println(entry{kind: eNotice, text: msg.notes, at: time.Now()})
-		return m, m.flushCmds()
+		// Release notes are available on demand (/changelog, `scout update`);
+		// they are deliberately not injected into the welcome card.
+		return m, tea.Println(m.welcomeCard())
 	}
 	if m.sel == nil && m.approval == nil {
 		var cmd tea.Cmd

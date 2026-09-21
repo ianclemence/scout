@@ -173,11 +173,24 @@ func (m *model) renderEntry(e entry) string {
 		}
 		return head + "\n" + m.assistantBlock(e.text)
 	case eTool:
-		return styleTool.Render("  ✓ " + cellTruncate(e.text, tw-4))
+		return styleTool.Render(wrapPrefixed(e.text, "  ✓ ", w, styleTool))
 	case eNotice:
-		return styleNotice.Render("  · " + cellTruncate(e.text, tw-2))
+		// Notices (including release notes) wrap; they are never truncated.
+		wrapped := wrapANSI(e.text, tw-2)
+		if len(wrapped) == 0 {
+			return styleNotice.Render("  ·")
+		}
+		var lines []string
+		for i, wl := range wrapped {
+			if i == 0 {
+				lines = append(lines, styleNotice.Render("  · "+wl))
+			} else {
+				lines = append(lines, styleNotice.Render("    "+wl))
+			}
+		}
+		return strings.Join(lines, "\n")
 	case eApproval:
-		return styleApproval.Render("  ◆ " + cellTruncate(e.text, tw-2))
+		return styleApproval.Render(wrapPrefixed(e.text, "  ◆ ", w, styleApproval))
 	case eErr:
 		var lines []string
 		for _, wl := range wrap(e.text, tw-2) {
@@ -188,8 +201,15 @@ func (m *model) renderEntry(e entry) string {
 	return e.text
 }
 
+// assistantBlock renders a model response as wrapped markdown inside the
+// Scout transcript column. Width is the terminal minus the one-cell left
+// margin so long prose wraps instead of overflowing.
 func (m *model) assistantBlock(text string) string {
-	body := RenderMarkdown(text)
+	w := m.width
+	if w < 20 {
+		w = 80
+	}
+	body := RenderMarkdownWidth(text, w-1)
 	lines := strings.Split(body, "\n")
 	for i, ln := range lines {
 		if ln == "" {
@@ -531,6 +551,50 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// wrapANSI word-wraps already-styled text without splitting escape sequences.
+// It measures with lipgloss.Width (so wide runes count correctly) and resets
+// style at the end of each wrapped line so colors do not bleed.
+func wrapANSI(s string, width int) []string {
+	if width <= 0 {
+		width = 80
+	}
+	var out []string
+	for _, para := range strings.Split(s, "\n") {
+		if strings.TrimSpace(para) == "" {
+			out = append(out, "")
+			continue
+		}
+		var cur strings.Builder
+		curLen := 0
+		flush := func() {
+			if curLen > 0 {
+				out = append(out, cur.String())
+				cur.Reset()
+				curLen = 0
+			}
+		}
+		for _, word := range strings.Fields(para) {
+			wl := lipgloss.Width(word)
+			if curLen == 0 {
+				cur.WriteString(word)
+				curLen = wl
+				continue
+			}
+			if curLen+1+wl > width {
+				flush()
+			}
+			if curLen > 0 {
+				cur.WriteString(" ")
+				curLen++
+			}
+			cur.WriteString(word)
+			curLen += wl
+		}
+		flush()
+	}
+	return out
 }
 
 func cellTruncate(s string, w int) string {
