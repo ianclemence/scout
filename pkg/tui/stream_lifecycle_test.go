@@ -43,8 +43,9 @@ func TestAnswerCapturedFromAgentEnd(t *testing.T) {
 	}
 }
 
-// TestLiveBlockIsBounded ensures the dock preview never grows past the cap,
-// so the composer and footer stay put while text streams.
+// TestLiveBlockIsBounded ensures the dock stays a constant blank anchor no
+// matter how much text streams: replies grow in the scrollback, never in a
+// fixed preview container.
 func TestLiveBlockIsBounded(t *testing.T) {
 	m := testModel()
 	m.width, m.height, m.ready = 60, 24, true
@@ -53,28 +54,38 @@ func TestLiveBlockIsBounded(t *testing.T) {
 		m.handleEvent(runtime.Event{Type: "token", Text: "word "})
 	}
 	lines := strings.Split(m.dockPreview(), "\n")
-	if len(lines) > dockPreviewMaxRows {
-		t.Fatalf("live block exceeded cap: %d lines\n%s", len(lines), m.dockPreview())
+	if len(lines) != dockPreviewRows {
+		t.Fatalf("dock must stay exactly %d rows, got %d", dockPreviewRows, len(lines))
+	}
+	if strings.TrimSpace(m.dockPreview()) != "" {
+		t.Fatalf("dock must stay blank while streaming, got %q", m.dockPreview())
 	}
 }
 
-// TestLiveBlockOnlyShowsCurrentTurn ensures a superseded preamble disappears
-// from the dock once the next turn starts.
+// TestLiveBlockOnlyShowsCurrentTurn ensures a superseded preamble never
+// reaches the scrollback twice: the stream resets every turn_start, so the
+// progressive printer starts each turn from a clean buffer.
 func TestLiveBlockOnlyShowsCurrentTurn(t *testing.T) {
 	m := testModel()
 	m.width, m.height, m.ready = 60, 24, true
 	m.working = true
-	m.handleEvent(runtime.Event{Type: "turn_start"})
-	m.handleEvent(runtime.Event{Type: "token", Text: "ANCIENT PREAMBLE"})
+	m.streamSty = streamStyler{width: streamWidth(m)}
+	var shown strings.Builder
+	feed := func(text string) {
+		m.handleEvent(runtime.Event{Type: "token", Text: text})
+		shown.WriteString(m.lastFlush)
+		m.lastFlush = ""
+	}
+	feed("ANCIENT PREAMBLE\n")
 	m.handleEvent(runtime.Event{Type: "tool_start", Name: "search"})
 	m.handleEvent(runtime.Event{Type: "turn_start"})
-	m.handleEvent(runtime.Event{Type: "token", Text: "fresh answer"})
+	feed("fresh answer\n")
 
-	got := m.dockPreview()
-	if strings.Contains(got, "ANCIENT PREAMBLE") {
-		t.Fatalf("superseded preamble leaked into the live dock: %q", got)
+	got := shown.String()
+	if n := strings.Count(got, "ANCIENT PREAMBLE"); n != 1 {
+		t.Fatalf("superseded preamble must print exactly once, got %d in %q", n, got)
 	}
 	if !strings.Contains(got, "fresh answer") {
-		t.Fatalf("current turn text missing from dock: %q", got)
+		t.Fatalf("current turn text missing from scrollback: %q", got)
 	}
 }

@@ -329,18 +329,23 @@ func TestLogoutListsStoredOnly(t *testing.T) {
 	}
 }
 
-// TestStreamingPreviewHasNoMarker ensures the live reply preview shows only
-// assistant text — no cursor marker.
+// TestStreamingPreviewHasNoMarker ensures live reply text carries no cursor
+// marker, and that it grows in the scrollback (not a dock preview): the
+// dock stays a blank anchor while tokens print progressively.
 func TestStreamingPreviewHasNoMarker(t *testing.T) {
 	m := testModel()
 	m.width, m.ready = 80, true
 	m.working = true
-	m.stream.WriteString("partial answer")
-	if strings.Contains(m.dockPreview(), "▍") {
-		t.Fatal("streaming preview must not contain a cursor marker")
+	m.streamSty = streamStyler{width: streamWidth(m)}
+	m.handleEvent(runtime.Event{Type: "token", Text: "partial answer\n"})
+	if strings.Contains(m.lastFlush, "▍") {
+		t.Fatal("streaming output must not contain a cursor marker")
 	}
-	if !strings.Contains(m.dockPreview(), "partial answer") {
-		t.Fatalf("streaming preview should show the tail, got %q", m.dockPreview())
+	if !strings.Contains(m.lastFlush, "partial answer") {
+		t.Fatalf("streaming text should reach the scrollback, got %q", m.lastFlush)
+	}
+	if strings.TrimSpace(m.dockPreview()) != "" {
+		t.Fatalf("dock must stay blank while streaming, got %q", m.dockPreview())
 	}
 }
 

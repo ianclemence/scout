@@ -57,44 +57,18 @@ func (m *model) View() string {
 	return b.String()
 }
 
-// dockPreviewRows is the height of the live preview area when no reply is
-// streaming: one blank row, ALWAYS rendered, so the composer and footer never
-// move at the moment a turn starts or commits.
+// dockPreviewRows is the height of the live preview area: one blank row,
+// ALWAYS rendered, so the composer and footer never move at the moment a
+// turn starts or commits. Replies stream line-by-line into the scrollback
+// (see stream.go); echoing their tail here would duplicate them.
 const dockPreviewRows = 1
 
-// dockPreviewMaxRows caps how tall the preview grows while a reply streams.
-// The preview starts at the anchor height and grows to this cap so the reader
-// can watch a few lines form; it collapses back to the anchor the instant the
-// turn commits. Growth happens only during streaming — never at the idle→working
-// or working→committed boundary — so the dock stays a stable anchor.
-const dockPreviewMaxRows = 6
-
-// dockPreview is the live area above the composer. It is always at least
-// dockPreviewRows tall (blank when idle) and grows up to dockPreviewMaxRows
-// while a reply streams, showing the newest lines. It renders markdown like the
-// committed answer so what you read while it forms matches what lands in the
-// transcript.
+// dockPreview is the live area above the composer, always exactly
+// dockPreviewRows lines and always blank. The active step is named in the
+// composer's top rule; the full tool trail is behind the details view.
 func (m *model) dockPreview() string {
-	w := m.width
-	if w < 10 {
-		w = 10
-	}
-	var rows []string
-	if m.working {
-		if prose := strings.TrimSpace(m.stream.String()); prose != "" {
-			body := RenderMarkdownWidth(prose, w-1)
-			lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
-			if len(lines) > dockPreviewMaxRows {
-				lines = lines[len(lines)-dockPreviewMaxRows:]
-			}
-			for _, ln := range lines {
-				if ln != "" {
-					ln = " " + ln
-				}
-				rows = append(rows, ln)
-			}
-		}
-	}
+	// Pad to exactly dockPreviewRows lines so the dock height is constant.
+	rows := []string{""}
 	for len(rows) < dockPreviewRows {
 		rows = append(rows, "")
 	}
@@ -172,19 +146,29 @@ func (m *model) renderEntry(e entry) string {
 	switch e.kind {
 	case eUser:
 		var lines []string
-		lines = append(lines, styleUserName.Render("You"))
+		first := true
+		emit := func(txt string) {
+			if first {
+				lines = append(lines, styleUserName.Render("You")+" "+styleUserBar.Render("┃")+txt)
+				first = false
+				return
+			}
+			// Three spaces keep the pipe under the first row's pipe
+			// ("You " is four cells wide; the panel adds the fourth).
+			lines = append(lines, styleUserPanel.Render("   "+styleUserBar.Render("┃")+txt))
+		}
 		for _, para := range strings.Split(e.text, "\n") {
 			if strings.TrimSpace(para) == "" {
-				lines = append(lines, styleUserPanel.Render(styleUserBar.Render("┃")))
+				emit("")
 				continue
 			}
 			for _, wl := range wrap(para, w-4) {
-				lines = append(lines, styleUserPanel.Render(styleUserBar.Render("┃")+" "+styleUserText.Render(wl)))
+				emit(" " + styleUserText.Render(wl))
 			}
 		}
 		return strings.Join(lines, "\n")
 	case eScout:
-		head := " " + styleAssistantName.Render("👷 Scout · "+m.st.Sess.Provider+"/"+m.st.Sess.Model)
+		head := m.scoutHead()
 		if e.dur > 0 {
 			head += styleAssistantMeta.Render(" · " + formatElapsed(e.dur))
 		}

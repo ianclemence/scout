@@ -112,13 +112,24 @@ type model struct {
 	// streamDirty is set when a token arrives and cleared on the coalesced
 	// flush tick; while dirty the dock keeps the last rendered frame.
 	streamDirty bool
-	spin        int
-	cancel      context.CancelFunc
-	sel         *selector
-	selMode     string // palette, login, logout
-	palFilter   string
-	login       *loginFlowUI
-	approval    *pendingApproval
+	// streamHeaderShown tracks whether the assistant header line has been
+	// printed for the current turn; streamFlushedLines counts how many
+	// completed streaming lines already reached the scrollback. Together
+	// they let the reply grow line-by-line in the conversation area (Ghost
+	// parity) with no reprint at completion.
+	streamHeaderShown  bool
+	streamFlushedLines int
+	streamSty          streamStyler
+	// lastFlush is the most recent block printed to the scrollback. It lets
+	// tests assert on committed output after the buffer drains.
+	lastFlush string
+	spin      int
+	cancel    context.CancelFunc
+	sel       *selector
+	selMode   string // palette, login, logout
+	palFilter string
+	login     *loginFlowUI
+	approval  *pendingApproval
 	// mcpLogin/mcpFlow track an in-flight MCP OAuth sign-in.
 	mcpLogin      *mcpLoginUI
 	mcpFlow       *mcpauth.Flow
@@ -762,6 +773,9 @@ func (m *model) startTurn(line string) (tea.Model, tea.Cmd) {
 	m.answer.Reset()
 	m.answerSet = false
 	m.streamDirty = false
+	m.streamHeaderShown = false
+	m.streamFlushedLines = 0
+	m.streamSty = streamStyler{width: streamWidth(m)}
 	m.toolLine = ""
 	m.toolName = ""
 	m.tools = 0
@@ -799,13 +813,19 @@ func (m *model) handleEvent(ev runtime.Event) (tea.Model, tea.Cmd) {
 		m.stream.Reset()
 		m.toolLine = ""
 		m.toolName = ""
+		// The progressive printer counts against the buffer: a reset buffer
+		// restarts the count (the header stays as-is — one header per turn,
+		// never one per tool iteration).
+		m.streamFlushedLines = 0
 	case "token":
 		m.stream.WriteString(ev.Text)
 		// Coalesce renders: mark dirty and let the frame tick repaint, rather
-		// than scheduling a render for every token.
+		// than scheduling a render for every token. The reply itself grows
+		// line-by-line in the scrollback via flushStreamLines.
 		if !m.streamDirty {
 			m.streamDirty = true
 		}
+		return m, m.flushStreamLines()
 	case "tool_start":
 		// The turn's prose ended where the tool call began: this segment is
 		// process narration, not the answer, so it is superseded rather than
@@ -849,6 +869,8 @@ func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd)
 		m.stream.Reset()
 		m.answer.Reset()
 		m.answerSet = false
+		m.streamHeaderShown = false
+		m.streamFlushedLines = 0
 		return m, m.flushCmds()
 	}
 	m.st.History = append(m.st.History, llm.Message{Role: "assistant", Content: commit})
@@ -859,9 +881,26 @@ func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd)
 		m.st.History = m.st.History[len(m.st.History)-40:]
 	}
 	m.turns++
-	m.println(entry{kind: eScout, text: commit, dur: dur, at: time.Now()})
+	var tailCmd tea.Cmd
+	if m.streamHeaderShown {
+		// The reply already grew line-by-line in the scrollback; print
+		// only the unprinted tail, never the whole text again.
+		if tail := m.streamTail(); tail != "" {
+			m.lastFlush += "\n" + tail
+			tailCmd = tea.Println(tail)
+		}
+	} else {
+		m.println(entry{kind: eScout, text: commit, dur: dur, at: time.Now()})
+	}
 	csession.Touch(m.st.Core.DB, m.st.Sess.ID, m.st.Sess.Provider, m.st.Sess.Model)
 	flush := m.flushCmds()
+	if tailCmd != nil {
+		if flush != nil {
+			flush = tea.Batch(tailCmd, flush)
+		} else {
+			flush = tailCmd
+		}
+	}
 	// Inline approval card for newly created pending actions.
 	if pend, _ := m.st.Core.PendingApprovals(); len(pend) > 0 && m.approval == nil {
 		p := pend[0]
@@ -871,6 +910,9 @@ func (m *model) finishTurn(final string, dur time.Duration) (tea.Model, tea.Cmd)
 	m.answer.Reset()
 	m.answerSet = false
 	m.streamDirty = false
+	m.streamHeaderShown = false
+	m.streamFlushedLines = 0
+	m.streamSty = streamStyler{width: streamWidth(m)}
 	return m, flush
 }
 

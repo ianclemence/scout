@@ -54,34 +54,41 @@ func RenderMarkdownWidth(s string, width int) string {
 			i = j
 			continue
 		}
-		switch {
-		case strings.HasPrefix(ts, "### "):
-			b.WriteString(inlineStyledBlock(strings.TrimPrefix(ts, "### "), styleMDHead, width) + "\n")
-		case strings.HasPrefix(ts, "## "):
-			b.WriteString(inlineStyledBlock(strings.TrimPrefix(ts, "## "), styleMDHead, width) + "\n")
-		case strings.HasPrefix(ts, "# "):
-			b.WriteString(inlineStyledBlock(strings.TrimPrefix(ts, "# "), styleMDHead1, width) + "\n")
-		case strings.HasPrefix(ts, "> "):
-			b.WriteString(wrapPrefixed(inline(strings.TrimPrefix(ts, "> ")), styleMDQuoteMark.Render("│ "), width, styleMDQuote) + "\n")
-		case strings.HasPrefix(ts, "- [x] ") || strings.HasPrefix(ts, "- [X] "):
-			b.WriteString(wrapPrefixed(inline(ts[6:]), styleMDCheck.Render("✓ "), width, lipgloss.NewStyle()) + "\n")
-		case strings.HasPrefix(ts, "- [ ] "):
-			b.WriteString(wrapPrefixed(inline(ts[6:]), styleMDUncheck.Render("○ "), width, lipgloss.NewStyle()) + "\n")
-		case strings.HasPrefix(ts, "- ") || strings.HasPrefix(ts, "* "):
-			b.WriteString(wrapPrefixed(inline(ts[2:]), styleMDList.Render("• "), width, lipgloss.NewStyle()) + "\n")
-		case isOrderedList(ts):
-			dot := strings.Index(ts, ".")
-			b.WriteString(wrapPrefixed(inline(strings.TrimSpace(ts[dot+1:])), styleMDEnum.Render(ts[:dot+1])+" ", width, lipgloss.NewStyle()) + "\n")
-		default:
-			// Plain prose: wrap the raw line, then apply inline styling per
-			// wrapped line so bold/code survive the wrap.
-			b.WriteString(inlineStyledBlock(line, lipgloss.NewStyle(), width) + "\n")
-		}
+		b.WriteString(renderMarkdownLine(ts, line, width) + "\n")
 		i++
 	}
 	// Collapse any stacked blank lines the block elements introduced, so
 	// concealing fences never leaves a double gap.
 	return collapseBlankRuns(strings.TrimRight(b.String(), "\n"))
+}
+
+// renderMarkdownLine renders one non-table, non-fence markdown line: the
+// single-line cases shared by the full renderer and the progressive stream
+// styler, so live lines look exactly like committed ones.
+func renderMarkdownLine(ts, line string, width int) string {
+	switch {
+	case strings.HasPrefix(ts, "### "):
+		return inlineStyledBlock(strings.TrimPrefix(ts, "### "), styleMDHead, width)
+	case strings.HasPrefix(ts, "## "):
+		return inlineStyledBlock(strings.TrimPrefix(ts, "## "), styleMDHead, width)
+	case strings.HasPrefix(ts, "# "):
+		return inlineStyledBlock(strings.TrimPrefix(ts, "# "), styleMDHead1, width)
+	case strings.HasPrefix(ts, "> "):
+		return wrapPrefixed(inline(strings.TrimPrefix(ts, "> ")), styleMDQuoteMark.Render("│ "), width, styleMDQuote)
+	case strings.HasPrefix(ts, "- [x] ") || strings.HasPrefix(ts, "- [X] "):
+		return wrapPrefixed(inline(ts[6:]), styleMDCheck.Render("✓ "), width, lipgloss.NewStyle())
+	case strings.HasPrefix(ts, "- [ ] "):
+		return wrapPrefixed(inline(ts[6:]), styleMDUncheck.Render("○ "), width, lipgloss.NewStyle())
+	case strings.HasPrefix(ts, "- ") || strings.HasPrefix(ts, "* "):
+		return wrapPrefixed(inline(ts[2:]), styleMDList.Render("• "), width, lipgloss.NewStyle())
+	case isOrderedList(ts):
+		dot := strings.Index(ts, ".")
+		return wrapPrefixed(inline(strings.TrimSpace(ts[dot+1:])), styleMDEnum.Render(ts[:dot+1])+" ", width, lipgloss.NewStyle())
+	default:
+		// Plain prose: wrap the raw line, then apply inline styling per
+		// wrapped line so bold/code survive the wrap.
+		return inlineStyledBlock(line, lipgloss.NewStyle(), width)
+	}
 }
 
 // collapseBlankRuns reduces any run of two or more consecutive blank lines to a
