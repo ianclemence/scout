@@ -66,7 +66,11 @@ func Resolve(db *store.Store, ref string) (*Session, error) {
 }
 
 func List(db *store.Store) ([]Session, error) {
-	rows, err := db.DB.Query(`SELECT id,name,provider,model,COALESCE(thinking,''),created_at,updated_at FROM sessions ORDER BY updated_at DESC LIMIT 50`)
+	// Empty sessions (created by launching scout, never messaged) are not
+	// tracked: resuming contentless rows is noise, so they are excluded at
+	// the single point every list flow reads through. Direct resolve by id
+	// (Get/Resolve) is unaffected.
+	rows, err := db.DB.Query(`SELECT id,name,provider,model,COALESCE(thinking,''),created_at,updated_at FROM sessions WHERE EXISTS (SELECT 1 FROM session_messages WHERE session_id=sessions.id) ORDER BY updated_at DESC LIMIT 50`)
 	if err != nil {
 		return nil, err
 	}
@@ -95,6 +99,27 @@ func Rename(db *store.Store, id, name string) error {
 func Touch(db *store.Store, id, provider, model string) {
 	_, _ = db.DB.Exec(`UPDATE sessions SET updated_at=?, provider=?, model=? WHERE id=?`,
 		ts(time.Now().UTC()), provider, model, id)
+}
+
+// Delete removes one session row. Its messages, if any, are removed too so
+// no orphan rows accumulate.
+func Delete(db *store.Store, id string) error {
+	if _, err := db.DB.Exec(`DELETE FROM session_messages WHERE session_id=?`, id); err != nil {
+		return err
+	}
+	_, err := db.DB.Exec(`DELETE FROM sessions WHERE id=?`, id)
+	return err
+}
+
+// DeleteEmpty removes every session that has no messages (launched but
+// never used, abandoned by crashes, or superseded) and reports how many
+// rows went. Sessions with content are never touched.
+func DeleteEmpty(db *store.Store) (int64, error) {
+	res, err := db.DB.Exec(`DELETE FROM sessions WHERE NOT EXISTS (SELECT 1 FROM session_messages WHERE session_id=sessions.id)`)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // SetThinking persists the session reasoning level.

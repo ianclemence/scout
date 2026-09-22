@@ -81,6 +81,9 @@ func toolsCmd(c *runtime.Core) error {
 // askCmd runs one agent turn non-interactively; --json emits the final text as JSON.
 
 func askCmd(c *runtime.Core, args []string) error {
+	// Sweep message-less rows on the way out: a run that errors before
+	// storing anything must not leave an empty session behind.
+	defer func() { _, _ = csession.DeleteEmpty(c.DB) }()
 	asJSON := false
 	var q []string
 	for _, a := range args {

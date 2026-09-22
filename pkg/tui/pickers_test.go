@@ -91,15 +91,24 @@ func TestThinkingCommandDispatch(t *testing.T) {
 func TestSessionPicker(t *testing.T) {
 	core := testCore(t)
 	cur, _ := csession.Create(core.DB, "cur", "deepseek", "deepseek-flash")
-	if _, err := csession.Create(core.DB, "other", "deepseek", "deepseek-flash"); err != nil {
-		t.Fatal(err)
+	other, _ := csession.Create(core.DB, "other", "deepseek", "deepseek-flash")
+	// Only sessions with messages are tracked: empties never reach the picker.
+	for _, id := range []string{cur.ID, other.ID} {
+		if err := csession.AppendMessages(core.DB, id, []csession.Message{{Role: "user", Content: "hi"}}); err != nil {
+			t.Fatal(err)
+		}
 	}
 	st := &isession.ReplState{Core: core, Sess: cur}
 	m := initialModel(st)
 	m.width, m.height, m.ready = 90, 30, true
 	m.openSessions()
-	if m.picker == nil || len(m.picker.items) < 2 {
-		t.Fatalf("session picker should list sessions: %+v", m.picker)
+	if m.picker == nil || len(m.picker.items) != 2 {
+		t.Fatalf("session picker should list content sessions: %+v", m.picker)
+	}
+	for _, it := range m.picker.items {
+		if it.label == "(empty session)" {
+			t.Fatalf("picker must never list empty sessions: %+v", m.picker.items)
+		}
 	}
 	curCount := 0
 	for _, it := range m.picker.items {

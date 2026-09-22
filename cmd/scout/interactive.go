@@ -35,7 +35,14 @@ func runInteractive(resumeRef string) error {
 		}
 	}
 	if isTerminal() {
-		return tui.Run(st)
+		outErr := tui.Run(st)
+		// Empty sessions are not tracked: sweep rows that never gained a
+		// message (this run if untouched, plus any legacy orphans) so the
+		// resume list never fills with contentless launches.
+		_, _ = csession.DeleteEmpty(c.DB)
+		return outErr
 	}
-	return isession.Run(c, sess)
+	outErr := isession.Run(c, sess)
+	_, _ = csession.DeleteEmpty(c.DB)
+	return outErr
 }

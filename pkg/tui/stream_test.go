@@ -105,3 +105,35 @@ func TestComposerGrowsWhileTyping(t *testing.T) {
 		t.Fatalf("composer must grow while typing long input, height=%d", h)
 	}
 }
+
+// The resume picker never lists empty sessions: launching scout without
+// messaging must leave nothing to resume.
+func TestResumePickerHidesEmptySessions(t *testing.T) {
+	core := testCore(t)
+	full, err := csession.Create(core.DB, "work", "ollama", "qwen3:0.6b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := csession.Create(core.DB, "interactive", "ollama", "qwen3:0.6b"); err != nil {
+		t.Fatal(err)
+	}
+	if err := csession.AppendMessages(core.DB, full.ID, []csession.Message{{Role: "user", Content: "hi"}}); err != nil {
+		t.Fatal(err)
+	}
+	st := &isession.ReplState{Core: core, Sess: &csession.Session{ID: full.ID, Provider: "ollama", Model: "qwen3:0.6b"}}
+	m := initialModel(st)
+	m.width, m.height, m.ready = 80, 24, true
+	m.openSessions()
+	if m.picker == nil {
+		t.Fatal("picker must open with a content session present")
+	}
+	lp := m.picker
+	if len(lp.items) != 1 {
+		t.Fatalf("picker must list only the messaged session, got %v", lp.items)
+	}
+	for _, it := range lp.items {
+		if strings.Contains(it.label, "empty session") {
+			t.Fatalf("picker must never show an empty session: %v", lp.items)
+		}
+	}
+}
