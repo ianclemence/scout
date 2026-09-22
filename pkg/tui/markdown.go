@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -11,11 +12,95 @@ import (
 // headings, bold, italic, inline code, fenced code, lists, ordered lists,
 // task items, quotes, links, tables. Prose is word-wrapped to width (never
 // truncated); fenced code and tables keep their own layout.
+// hasOpenSpan reports whether s ends inside an unclosed inline span
+// (code, bold, italic). Models hard-wrap mid-span; without joining, the
+// markers leak verbatim on both fragments.
+func hasOpenSpan(s string) bool {
+	var inCode, bold, italic bool
+	rs := []rune(s)
+	for i := 0; i < len(rs); i++ {
+		if rs[i] == '\\' {
+			i++
+			continue
+		}
+		if rs[i] == '`' {
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			continue
+		}
+		if rs[i] == '*' {
+			if i+1 < len(rs) && rs[i+1] == '*' {
+				bold = !bold
+				i++
+			} else {
+				italic = !italic
+			}
+		}
+	}
+	return inCode || bold || italic
+}
+
+// isBlockStart reports whether a line opens a block construct. Continued
+// spans never join across these: block structure wins over span repair.
+func isBlockStart(s string) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return false
+	}
+	if strings.HasPrefix(t, "```") || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "> ") {
+		return true
+	}
+	if t == "---" || t == "***" || t == "___" {
+		return true
+	}
+	for _, p := range []string{"- [ ] ", "- [x] ", "- [X] ", "- ", "* "} {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	if isOrderedList(t) || isTableRow(t) {
+		return true
+	}
+	return false
+}
+
+// joinableFrom reports whether a line may donate a continued span to its
+// successor. Fences flip code mode and table rows feed the grid lookahead:
+// joining from them corrupts structure.
+func joinableFrom(cur string) bool {
+	t := strings.TrimSpace(cur)
+	if strings.HasPrefix(t, "```") || isTableRow(t) {
+		return false
+	}
+	return true
+}
+
+// joinContinuedLines joins a physical line with its successor when it ends
+// inside an unclosed inline span. Only triggers on actually-broken spans;
+// all other text passes through byte-identical.
+func joinContinuedLines(text string) string {
+	lines := strings.Split(text, "\n")
+	var out []string
+	i := 0
+	for i < len(lines) {
+		cur := lines[i]
+		for i+1 < len(lines) && joinableFrom(cur) && hasOpenSpan(cur) && !isBlockStart(lines[i+1]) {
+			cur += " " + strings.TrimSpace(lines[i+1])
+			i++
+		}
+		out = append(out, cur)
+		i++
+	}
+	return strings.Join(out, "\n")
+}
+
 func RenderMarkdownWidth(s string, width int) string {
 	if width < 20 {
-		width = 80
+		width = 20
 	}
-	lines := strings.Split(s, "\n")
+	lines := strings.Split(joinContinuedLines(s), "\n")
 	var b strings.Builder
 	inFence := false
 	i := 0
@@ -345,7 +430,7 @@ func renderTable(block []string, width int) []string {
 	// Border overhead: "│ " + (n-1)*" │ " + " │" = 3n + 1.
 	availableForCells := width - (3*numCols + 1)
 	if availableForCells < numCols {
-		return wrap(strings.Join(block, "\n"), width)
+		return renderStacked(header, rows, width)
 	}
 
 	// Natural (unwrapped) and minimum (longest word) column widths.
@@ -373,10 +458,11 @@ func renderTable(block []string, width int) []string {
 	}
 
 	widths := fitColumns(natural, minWord, availableForCells)
-	// A word wider than its column would burst the grid: show raw markdown.
+	// A word wider than its column would burst the grid: stack the rows
+	// instead of showing raw pipes.
 	for i, w := range widths {
 		if minWord[i] > w {
-			return wrap(strings.Join(block, "\n"), width)
+			return renderStacked(header, rows, width)
 		}
 	}
 
@@ -405,6 +491,75 @@ func renderTable(block []string, width int) []string {
 	}
 	out = append(out, borderLine("└─", "─┴─", "─┘"))
 	return out
+}
+
+// renderStacked renders table rows as labeled field groups when the grid
+// cannot fit: every cell reads as `Header: value` with wrapped continuations
+// indented beneath. Values render plainly, the grid convention. No raw
+// pipes ever reach the transcript, whatever the terminal width. Empty
+// header cells fall back to `Col N`.
+func renderStacked(header []string, rows [][]string, width int) []string {
+	if width < 20 {
+		width = 20
+	}
+	var out []string
+	for ri, row := range rows {
+		if ri > 0 {
+			out = append(out, "")
+		}
+		for i := range row {
+			label := ""
+			if i < len(header) {
+				label = strings.TrimSpace(stripInline(header[i]))
+			}
+			if label == "" {
+				label = fmt.Sprintf("Col %d", i+1)
+			}
+			// The label shares its row with the first value chunk: bound
+			// it so label + ": " + value never exceeds the width.
+			if lipgloss.Width(label) > width-12 {
+				label = truncateLabel(label, width-12)
+			}
+			indent := strings.Repeat(" ", lipgloss.Width(label)+2)
+			avail := width - lipgloss.Width(label) - 2
+			if avail < 10 {
+				avail = 10
+			}
+			chunks := wrap(stripInline(row[i]), avail)
+			if len(chunks) == 0 {
+				out = append(out, styleMDTableHead.Render(label+":"))
+				continue
+			}
+			out = append(out, styleMDTableHead.Render(label+":")+" "+chunks[0])
+			for _, c := range chunks[1:] {
+				out = append(out, indent+c)
+			}
+		}
+	}
+	return out
+}
+
+// truncateLabel shortens an over-wide stacked-table label with an
+// ellipsis, rune-safe. Headers are identifiers; truncation keeps the
+// invariant that no stacked line exceeds the width.
+func truncateLabel(s string, w int) string {
+	if w <= 1 {
+		return "…"
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	var b strings.Builder
+	width := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if width+rw > w-1 {
+			break
+		}
+		b.WriteRune(r)
+		width += rw
+	}
+	return b.String() + "…"
 }
 
 // fitColumns sizes columns to fit availableForCells: natural widths when they

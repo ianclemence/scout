@@ -36,9 +36,13 @@ func nextStreamBlock(streaming string, headerShown bool, flushedLines int) (want
 // a non-row line or the turn end decides them. Single lines go through
 // renderMarkdownLine, so live text matches committed text.
 type streamStyler struct {
-	width        int
-	inCode       bool
-	table        []string
+	width  int
+	inCode bool
+	table  []string
+	// pending holds a completed line that ended inside an unclosed inline
+	// span: it is prepended to the next line (span repair, mirroring
+	// joinContinuedLines) rather than emitted with leaking markers.
+	pending      string
 	lastWasBlank bool
 }
 
@@ -47,6 +51,21 @@ func (s *streamStyler) line(raw string) []string {
 		s.width = 20 // same floor as committed rendering; never wrap per-rune
 	}
 	trim := strings.TrimSpace(raw)
+	// A pending span repair resolves against prose continuations only.
+	// Block structure wins: a fence, table row, or other block opener
+	// flushes the pending line as-is (markers may show, exactly like the
+	// full renderer on unrepaired input).
+	if s.pending != "" && (strings.HasPrefix(trim, "```") || isTableRow(trim) || isBlockStart(trim)) {
+		out := s.renderSingle(s.pending)
+		s.pending = ""
+		out = append(out, s.line(raw)...)
+		return out
+	}
+	if s.pending != "" {
+		raw = s.pending + " " + trim
+		s.pending = ""
+		trim = strings.TrimSpace(raw)
+	}
 	if strings.HasPrefix(trim, "```") {
 		out := s.flushTable()
 		s.inCode = !s.inCode
@@ -68,8 +87,22 @@ func (s *streamStyler) line(raw string) []string {
 		s.table = append(s.table, raw)
 		return nil
 	}
+	// A line ending inside an unclosed span waits for its continuation
+	// instead of emitting leaking markers.
+	if hasOpenSpan(trim) {
+		s.pending = raw
+		return s.flushTable()
+	}
 	out := s.flushTable()
+	out = append(out, s.renderSingle(raw)...)
+	return out
+}
+
+// renderSingle renders one complete logical line with the reply inset.
+func (s *streamStyler) renderSingle(raw string) []string {
+	trim := strings.TrimSpace(raw)
 	rendered := renderMarkdownLine(trim, raw, s.width)
+	var out []string
 	for _, ln := range strings.Split(rendered, "\n") {
 		if ln == "" {
 			out = append(out, "")
@@ -114,10 +147,17 @@ func (s *streamStyler) flushTable() []string {
 	return out
 }
 
-// flush ends the turn: any pending table is decided.
+// flush ends the turn: any pending table is decided, and a span repair
+// still waiting for its continuation emits as-is (markers may show on
+// genuinely unclosed input, exactly like the full renderer).
 func (s *streamStyler) flush() []string {
 	defer func() { s.inCode = false }()
-	return s.flushTable()
+	out := s.flushTable()
+	if s.pending != "" {
+		out = append(out, s.renderSingle(s.pending)...)
+		s.pending = ""
+	}
+	return out
 }
 
 // scoutHead is the reply header line (no duration; finishTurn appends it).
@@ -143,11 +183,14 @@ func (m *model) flushStreamLines() tea.Cmd {
 	for _, raw := range raws {
 		styled = append(styled, m.streamSty.line(raw)...)
 	}
+	// Consumed lines always advance past, even when they buffered inside
+	// the styler (pending table rows) and printed nothing: re-feeding them
+	// would duplicate the buffer.
+	m.streamFlushedLines = flushed
 	if !wantHeader && len(styled) == 0 {
 		return nil
 	}
 	m.streamHeaderShown = true
-	m.streamFlushedLines = flushed
 	var b strings.Builder
 	if wantHeader {
 		b.WriteString("\n")

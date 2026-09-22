@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/ianclemence/scout/pkg/csession"
 	"github.com/ianclemence/scout/pkg/isession"
@@ -134,6 +135,81 @@ func TestResumePickerHidesEmptySessions(t *testing.T) {
 	for _, it := range lp.items {
 		if strings.Contains(it.label, "empty session") {
 			t.Fatalf("picker must never show an empty session: %v", lp.items)
+		}
+	}
+}
+
+// Buffered table rows count as consumed: re-feeding them would duplicate
+// the buffer at flush time.
+func TestBufferedTableRowsAdvanceAccounting(t *testing.T) {
+	core := testCore(t)
+	st := &isession.ReplState{Core: core, Sess: &csession.Session{Provider: "ollama", Model: "qwen3:0.6b"}}
+	m := initialModel(st)
+	m.width, m.height, m.ready = 80, 24, true
+	m.working = true
+	m.streamSty = streamStyler{width: streamWidth(m)}
+	var shown strings.Builder
+	feed := func(text string) {
+		m.handleEvent(runtime.Event{Type: "token", Text: text})
+		shown.WriteString(m.lastFlush + "\n")
+		m.lastFlush = ""
+	}
+	feed("| a | b |\n")
+	feed("|---|---|\n")
+	feed("| 1 | 2 |\n")
+	m.finishTurn("| a | b |\n|---|---|\n| 1 | 2 |", 0)
+	shown.WriteString(m.lastFlush + "\n")
+	got := shown.String()
+	if n := strings.Count(got, "│ a │ b │"); n != 1 {
+		t.Fatalf("table header printed %d times, want once:\n%s", n, got)
+	}
+}
+
+// Inline spans split across the model's own line breaks must conceal on
+// both paths: a completed line ending inside an unclosed span waits for
+// its continuation instead of leaking markers.
+func TestContinuedSpansConcealed(t *testing.T) {
+	in := "The **Supreme Court blocked the order\nfully** today *(NYT\nJun 1)*."
+	if out := RenderMarkdownWidth(in, 76); strings.Contains(out, "**") || strings.Contains(out, "*(") {
+		t.Errorf("full render leaked markers:\n%s", out)
+	}
+	m := testModel()
+	m.width, m.height, m.ready = 80, 24, true
+	m.working = true
+	m.streamSty = streamStyler{width: streamWidth(m)}
+	var shown strings.Builder
+	for _, ln := range strings.Split(in, "\n") {
+		m.handleEvent(runtime.Event{Type: "token", Text: ln + "\n"})
+		shown.WriteString(m.lastFlush + "\n")
+		m.lastFlush = ""
+	}
+	got := shown.String()
+	for _, bad := range []string{"**", "*("} {
+		if strings.Contains(got, bad) {
+			t.Errorf("progressive render leaked %q:\n%s", bad, got)
+		}
+	}
+}
+
+// Narrow tables stack instead of showing raw pipes.
+func TestNarrowTableStacks(t *testing.T) {
+	out := RenderMarkdownWidth("| Supercalifragilisticexpialidocious | Pneumonoultramicroscopicsilicovolcanoconiosis |\n|---|---|\n| Antidisestablishmentarianism | Floccinaucinihilipilification |", 25)
+	lines := strings.Split(out, "\n")
+	for _, ln := range lines {
+		if strings.Contains(ln, "|") {
+			t.Fatalf("narrow table must not show raw pipes:\n%s", out)
+		}
+		if lipgloss.Width(ln) > 25 {
+			t.Fatalf("stacked line exceeds width:\n%s", out)
+		}
+	}
+	// Long labels truncate with ellipsis; long values wrap rune-safe.
+	if !strings.Contains(out, "…") {
+		t.Fatalf("over-wide label must truncate:\n%s", out)
+	}
+	for _, want := range []string{"Antidisest", "Floccinauc"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stacked table must keep value content, want %q:\n%s", want, out)
 		}
 	}
 }

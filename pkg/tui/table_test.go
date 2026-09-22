@@ -69,8 +69,19 @@ func TestTableFallsBackWhenTooNarrow(t *testing.T) {
 	if strings.Contains(out, "┌") {
 		t.Fatalf("too-narrow table should not attempt a grid:\n%s", out)
 	}
-	if !strings.Contains(out, "|") {
-		t.Fatalf("too-narrow table should fall back to raw markdown:\n%s", out)
+	lines := strings.Split(out, "\n")
+	for _, ln := range lines {
+		if strings.Contains(ln, "|") {
+			t.Fatalf("too-narrow table must never show raw pipes:\n%s", out)
+		}
+		if lipgloss.Width(ln) > 20 {
+			t.Fatalf("stacked line exceeds width:\n%s", out)
+		}
+	}
+	for _, want := range []string{"Title:", "Rec:", "Full Stack", "Music-Release"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("stacked fallback must keep labels and content, want %q:\n%s", want, out)
+		}
 	}
 }
 
