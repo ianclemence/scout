@@ -3,6 +3,15 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.11] - 2026-09-22
+
+- Tables that cannot fit the terminal width no longer fall back to raw
+  pipes: rows render as labeled field groups that stay readable at any
+  width. Long words break at URL and slug boundaries without splitting
+  multibyte runes.
+- Inline styling split across the model's line breaks now rejoins before
+  rendering, on both the live stream and the committed reply.
+
 ## [0.13.10] - 2026-09-22
 
 - Empty sessions are no longer tracked. Launching Scout without messaging
