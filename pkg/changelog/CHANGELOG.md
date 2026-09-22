@@ -3,6 +3,13 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.10] - 2026-09-22
+
+- Empty sessions are no longer tracked. Launching Scout without messaging
+  used to leave a contentless row in the resume list; session lists now
+  show only sessions with messages, and quitting sweeps message-less rows
+  (this run's if untouched, plus any legacy orphans).
+
 ## [0.13.9] - 2026-09-22
 
 - Tables no longer chop long words mid-word. Over-wide values break at
