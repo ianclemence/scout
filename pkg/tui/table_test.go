@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -70,5 +71,49 @@ func TestTableFallsBackWhenTooNarrow(t *testing.T) {
 	}
 	if !strings.Contains(out, "|") {
 		t.Fatalf("too-narrow table should fall back to raw markdown:\n%s", out)
+	}
+}
+
+// breakWord prefers URL/slug boundaries so long links and hyphenated terms
+// stay readable instead of chopping mid-word ("digital-s"/"ignage").
+func TestBreakWordPrefersBoundaries(t *testing.T) {
+	got := breakWord("Queue/appointment/kiosk/SMS/digital-signage", 20)
+	want := []string{"Queue/appointment/", "kiosk/SMS/digital-", "signage"}
+	if len(got) != len(want) {
+		t.Fatalf("breakWord = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("breakWord = %q, want %q", got, want)
+		}
+	}
+}
+
+// breakWord never splits a multibyte rune: byte slicing corrupts UTF-8 and
+// breaks grid alignment.
+func TestBreakWordRuneSafe(t *testing.T) {
+	for _, p := range breakWord("日本語テスト日本語テスト日本語テスト", 10) {
+		if !utf8.ValidString(p) {
+			t.Fatalf("piece is not valid UTF-8: %q", p)
+		}
+		if lipgloss.Width(p) > 10 {
+			t.Fatalf("piece exceeds width: %q", p)
+		}
+	}
+}
+
+// A table cell with a long hyphenated value must stay grid-aligned: every
+// rendered line the same visible width, no mid-word chop.
+func TestTableLongHyphenatedCellAligned(t *testing.T) {
+	out := RenderMarkdownWidth("| | Music pipeline | Queue SaaS |\n|---|---|---|\n| Core work | Ingestion, normalization | Queue/appointment/kiosk/SMS/digital-signage product |", 78)
+	lines := strings.Split(out, "\n")
+	w := lipgloss.Width(lines[0])
+	for _, ln := range lines {
+		if lipgloss.Width(ln) != w {
+			t.Fatalf("misaligned row (want width %d): %q\nfull:\n%s", w, ln, out)
+		}
+	}
+	if strings.Contains(out, "digital-s\n") || strings.Contains(out, "digital-s ") {
+		t.Fatalf("hyphenated word chopped mid-word:\n%s", out)
 	}
 }

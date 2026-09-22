@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -774,25 +775,32 @@ func wrap(s string, w int) []string {
 		for _, word := range strings.Fields(para) {
 			wl := lipgloss.Width(word)
 			if curLen == 0 {
-				// Hard-break words wider than the width.
-				for wl > w {
-					out = append(out, word[:w])
-					word = word[w:]
-					wl = lipgloss.Width(word)
+				if wl <= w {
+					cur.WriteString(word)
+					curLen = wl
+					continue
 				}
-				cur.WriteString(word)
-				curLen = wl
+				emitBroken(word, w, func(p string) {
+					out = append(out, p)
+				}, func(p string) {
+					cur.WriteString(p)
+					curLen = lipgloss.Width(p)
+				})
 				continue
 			}
 			if curLen+1+wl > w {
 				flush()
-				for wl > w {
-					out = append(out, word[:w])
-					word = word[w:]
-					wl = lipgloss.Width(word)
+				if lipgloss.Width(word) <= w {
+					cur.WriteString(word)
+					curLen = lipgloss.Width(word)
+					continue
 				}
-				cur.WriteString(word)
-				curLen = wl
+				emitBroken(word, w, func(p string) {
+					out = append(out, p)
+				}, func(p string) {
+					cur.WriteString(p)
+					curLen = lipgloss.Width(p)
+				})
 				continue
 			}
 			cur.WriteString(" " + word)
@@ -801,4 +809,65 @@ func wrap(s string, w int) []string {
 		flush()
 	}
 	return out
+}
+
+// emitBroken splits an over-wide word into width-fitting pieces: full rows
+// go to emit, the remainder to hold. Boundaries prefer URL/slug breaks,
+// never a split rune.
+func emitBroken(word string, w int, emit, hold func(string)) {
+	pieces := breakWord(word, w)
+	for _, p := range pieces[:len(pieces)-1] {
+		emit(p)
+	}
+	hold(pieces[len(pieces)-1])
+}
+
+// breakWord splits an over-wide word into width-fitting pieces, preferring
+// URL/slug boundaries (/ and -) so links and hyphenated terms stay
+// readable, and never splitting a multibyte rune: byte slicing corrupts
+// UTF-8 (mojibake) and breaks the grid alignment with it.
+func breakWord(word string, w int) []string {
+	if w <= 0 {
+		w = 1
+	}
+	var out []string
+	rest := word
+	for lipgloss.Width(rest) > w {
+		cut := cutPoint(rest, w)
+		out = append(out, rest[:cut])
+		rest = rest[cut:]
+	}
+	out = append(out, rest)
+	return out
+}
+
+// cutPoint returns a byte index splitting s within width cells: after the
+// last '/' or '-' fitting in width, else the widest rune-safe prefix. A
+// single over-wide rune is consumed whole rather than emitting nothing.
+func cutPoint(s string, w int) int {
+	best := 0
+	width := 0
+	lastBreak := -1
+	for i, r := range s {
+		rw := lipgloss.Width(string(r))
+		if width+rw > w {
+			break
+		}
+		width += rw
+		if r == '/' || r == '-' {
+			lastBreak = i + len(string(r))
+		}
+		best = i + len(string(r))
+	}
+	if lastBreak > 0 && lastBreak < len(s) {
+		return lastBreak
+	}
+	if best == 0 {
+		_, size := utf8.DecodeRuneInString(s)
+		if size < 1 {
+			size = 1
+		}
+		return size
+	}
+	return best
 }
