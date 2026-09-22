@@ -3,6 +3,12 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.9] - 2026-09-22
+
+- Tables no longer chop long words mid-word. Over-wide values break at
+  URL and slug boundaries (`/`, `-`) and never split a multibyte rune,
+  so hyphenated terms and links stay readable and the grid stays aligned.
+
 ## [0.13.8] - 2026-09-22
 
 Terminal parity with Ghost.
