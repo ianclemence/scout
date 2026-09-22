@@ -3,6 +3,17 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.8] - 2026-09-22
+
+Terminal parity with Ghost.
+
+- Replies stream line-by-line into the conversation as they arrive,
+  styled like committed answers — no more watching a fixed preview and
+  getting the whole answer at the end. Completion prints only the
+  remaining tail, never the full text again.
+- Your messages show as `You ┃ text` on one row, with continuation pipes
+  aligned beneath.
+
 ## [0.13.7] - 2026-09-22
 
 Fresh start.
