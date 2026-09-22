@@ -110,18 +110,18 @@ func (c *Core) Tools() []*Tool {
 				}
 				return toJSON(out), nil
 			}},
-		{Name: "search_opportunities", Permission: PermRead, Description: "Search stored opportunities.", ArgsHint: `{"query": "go api", "status": "review"}`, ReadOnly: true,
+		{Name: "search_opportunities", Permission: PermRead, Description: "Search stored opportunities (includes posted date for freshness).", ArgsHint: `{"query": "go api", "status": "review"}`, ReadOnly: true,
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
 				opps, err := c.ListOpportunities(OpportunityFilter{Query: str(args, "query"), Status: str(args, "status"), Limit: num(args, "limit", 20)})
 				if err != nil {
 					return "", err
 				}
 				type o struct {
-					ID, Source, Title, Status string
+					ID, Source, Title, Status, PostedAt string
 				}
 				out := []o{}
 				for _, x := range opps {
-					out = append(out, o{x.ID, x.Source, x.Title, x.Status})
+					out = append(out, o{x.ID, x.Source, x.Title, x.Status, formatStoredTime(x.PostedAt)})
 				}
 				return toJSON(out), nil
 			}},

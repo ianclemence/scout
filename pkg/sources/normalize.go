@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ianclemence/scout/pkg/domain"
 	imat "github.com/ianclemence/scout/pkg/match"
@@ -129,12 +130,45 @@ func normalizeMap(source string, m map[string]any) *domain.Opportunity {
 	}
 	o.CanonicalURL = o.SourceURL
 	o.Fingerprint = imat.Fingerprint(source, o.SourceOppID, o.Title, o.Description)
+	o.PostedAt = parsePostedAt(m)
 	return Normalize(source, o)
 }
 
 func rawOf(m map[string]any) []byte {
 	b, _ := json.Marshal(m)
 	return b
+}
+
+// parsePostedAt recovers the listing date from common payload shapes.
+// Generic MCP sources use different keys; Upwork uses published_date.
+// Returns the zero time when nothing parseable is present (caller treats
+// it as unknown rather than inventing a date).
+func parsePostedAt(m map[string]any) time.Time {
+	keys := []string{
+		"published_date", "created_date", "posted_at", "published_at",
+		"created_at", "date_posted", "posted", "published",
+	}
+	for _, k := range keys {
+		if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+			if t := parseFlexibleTime(strings.TrimSpace(v)); !t.IsZero() {
+				return t
+			}
+		}
+	}
+	return time.Time{}
+}
+
+func parseFlexibleTime(s string) time.Time {
+	formats := []string{
+		time.RFC3339Nano, time.RFC3339, "2006-01-02T15:04:05Z07:00",
+		"2006-01-02 15:04:05", "2006-01-02",
+	}
+	for _, f := range formats {
+		if t, err := time.Parse(f, s); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
 }
 
 func truncate(b []byte, n int) string {

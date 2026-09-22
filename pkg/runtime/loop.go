@@ -116,7 +116,7 @@ func (c *Core) RunAgent(ctx context.Context, eng *agent.Engine, history []llm.Me
 			emit(Event{Type: "token", Text: visible})
 		})
 		err := eng.LLM.Stream(ctx, llm.Request{
-			System:   agent.SystemPrompt + skillBlock + "\n\nAvailable tools:\n" + c.ToolCatalogFor(lastUser) + reactFormat,
+			System:   currentTimeHeader() + agent.SystemPrompt + skillBlock + "\n\nAvailable tools:\n" + c.ToolCatalogFor(lastUser) + reactFormat,
 			Messages: msgs, Temperature: 0.3, MaxTokens: 1500, Thinking: think,
 		}, func(tok string) error {
 			sb.WriteString(tok)
@@ -301,6 +301,15 @@ func parseToolCall(text string) (string, map[string]any, bool) {
 func summarizeArgs(args map[string]any) string {
 	b, _ := json.Marshal(args)
 	return truncate(string(b), 160)
+}
+
+// currentTimeHeader gives the model a deterministic "now" every turn.
+// Code owns the clock; the model never guesses the date or claims it has
+// no clock. Built per turn so "today" is always fresh.
+func currentTimeHeader() string {
+	t := time.Now().UTC()
+	return "Current time (UTC): " + t.Format(time.RFC3339) +
+		" — Today is " + t.Format("Monday, 2006-01-02") + ".\n\n"
 }
 
 // engineFromEnv builds a role-scoped engine. Legacy role names

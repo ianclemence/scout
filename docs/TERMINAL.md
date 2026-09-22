@@ -17,8 +17,11 @@ This document is the design contract for the interactive terminal.
    language) and by picking. A picker that mirrors a command's argument is not
    a convenience — it is the primary path on a phone-sized terminal.
 3. **Plain language goes to the agent; slashes run locally.** A slash command
-   is deterministic, instant, and costs no model turn. Anything else is a
-   request to the agent loop with tools.
+   is deterministic, instant, free (no model turn), and best for known actions
+   (`/opportunities`, `/analyze 1`). Anything else is a request to the agent
+   loop with tools — use it for open-ended work ("find React Native work under
+   my rate", "why does this fit me"). Simple facts ("what is 1+1", "what is
+   the date today") are answered directly by the agent with no tool needed.
 4. **The transcript is scrollback; the dock is live.** Committed messages are
    printed once into terminal scrollback (native scroll, copy, search). Only
    the live region — live answer block, composer, selector, footer — is redrawn

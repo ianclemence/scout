@@ -3,6 +3,17 @@
 Newest first. Scout shows new entries on first launch after an update;
 `scout changelog` (or `scout update --notes`) reprints them.
 
+## [0.13.12] - 2026-09-22
+
+- Scout now knows the current date. Every agent turn carries a UTC time
+  header, so "what is the date today", "top 5 to apply today", and freshness
+  ranking work instead of refusing for lack of a clock. Simple facts
+  ("what is 1+1") are answered directly with no tool call; opportunity
+  claims still require tools and approvals still gate submit/send.
+- Listing dates survive end to end. Generic sources parse `published_date`
+  and friends into `PostedAt`, discovery persists it, and `discover` /
+  `search` results include `posted_at` for freshness ranking.
+
 ## [0.13.11] - 2026-09-22
 
 - Tables that cannot fit the terminal width no longer fall back to raw

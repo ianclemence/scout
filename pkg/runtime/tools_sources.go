@@ -43,7 +43,7 @@ func sourceTools(c *Core) []*Tool {
 	}
 	return []*Tool{
 		{Name: "discover_opportunities", Permission: PermRead, ReadOnly: true,
-			Description: "Search one or all connected sources. Returns normalized opportunities; per-source failures are isolated, never fatal.",
+			Description: "Search one or all connected sources. Returns normalized opportunities with posted date; per-source failures are isolated, never fatal.",
 			ArgsHint:    `{"query": "go api", "title": "Golang", "skills": ["go"], "job_type": "hourly", "rate_min": 30, "sources": ["upwork"], "limit": 20}`,
 			ArgsSchema:  map[string]string{"query": "string", "title": "string", "skills": "string[]", "sources": "string[]", "location": "string", "remote": "string", "job_type": "string", "min_budget": "number", "rate_min": "number", "rate_max": "number", "limit": "number"},
 			Handler: func(ctx context.Context, args map[string]any) (string, error) {
@@ -100,6 +100,7 @@ func sourceTools(c *Core) []*Tool {
 							"budget_min": o.BudgetMin, "budget_max": o.BudgetMax,
 							"remote": o.RemoteStatus, "location": o.Location,
 							"skills": o.Skills, "url": o.CanonicalURL,
+							"posted_at": formatStoredTime(o.PostedAt),
 						})
 					}
 				}

@@ -151,7 +151,7 @@ func cmdHelp(ctx *SessionCtx, args string) error {
 		}
 		ctx.Printf("  /%-14s %s\n", c.Name, c.Description)
 	}
-	ctx.Printf("\nAnything else is a request to the agent. Ctrl-C interrupts · Ctrl-D exits.\n")
+	ctx.Printf("\nAnything else is a request to the agent (open-ended work, plain language). Slashes are instant and free; agent turns use the model and tools.\n")
 	ctx.Printf("Keys: type / for the command palette · Ctrl+L model · Esc interrupt/quit.\n")
 	return nil
 }

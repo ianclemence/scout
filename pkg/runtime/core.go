@@ -79,7 +79,7 @@ func (c *Core) ListOpportunities(f OpportunityFilter) ([]domain.Opportunity, err
 	if lim <= 0 || lim > 200 {
 		lim = 50
 	}
-	q := `SELECT id,source,title,substr(description,1,2000),status,budget_type,COALESCE(budget_min,0),COALESCE(budget_max,0),COALESCE(connects_cost,0) FROM opportunities WHERE 1=1`
+	q := `SELECT id,source,title,substr(description,1,2000),status,budget_type,COALESCE(budget_min,0),COALESCE(budget_max,0),COALESCE(connects_cost,0),COALESCE(posted_at,'') FROM opportunities WHERE 1=1`
 	var args []any
 	if f.Query != "" {
 		q += ` AND (title LIKE ? OR description LIKE ?)`
@@ -99,7 +99,9 @@ func (c *Core) ListOpportunities(f OpportunityFilter) ([]domain.Opportunity, err
 	var out []domain.Opportunity
 	for rows.Next() {
 		var o domain.Opportunity
-		rows.Scan(&o.ID, &o.Source, &o.Title, &o.Description, &o.Status, &o.BudgetType, &o.BudgetMin, &o.BudgetMax, &o.ConnectsCost)
+		var posted string
+		rows.Scan(&o.ID, &o.Source, &o.Title, &o.Description, &o.Status, &o.BudgetType, &o.BudgetMin, &o.BudgetMax, &o.ConnectsCost, &posted)
+		o.PostedAt = parseStoredTime(posted)
 		out = append(out, o)
 	}
 	return out, rows.Err()
@@ -107,9 +109,9 @@ func (c *Core) ListOpportunities(f OpportunityFilter) ([]domain.Opportunity, err
 
 func (c *Core) GetOpportunity(id string) (*domain.Opportunity, error) {
 	var o domain.Opportunity
-	var skills, clientID string
-	err := c.DB.DB.QueryRow(`SELECT id,source,source_opp_id,title,description,COALESCE(skills,''),COALESCE(category,''),budget_type,COALESCE(budget_min,0),COALESCE(budget_max,0),COALESCE(connects_cost,0),COALESCE(canonical_url,''),status FROM opportunities WHERE id=?`, id).
-		Scan(&o.ID, &o.Source, &o.SourceOppID, &o.Title, &o.Description, &skills, &o.Category, &o.BudgetType, &o.BudgetMin, &o.BudgetMax, &o.ConnectsCost, &o.CanonicalURL, &o.Status)
+	var skills, clientID, posted string
+	err := c.DB.DB.QueryRow(`SELECT id,source,source_opp_id,title,description,COALESCE(skills,''),COALESCE(category,''),budget_type,COALESCE(budget_min,0),COALESCE(budget_max,0),COALESCE(connects_cost,0),COALESCE(canonical_url,''),status,COALESCE(posted_at,'') FROM opportunities WHERE id=?`, id).
+		Scan(&o.ID, &o.Source, &o.SourceOppID, &o.Title, &o.Description, &skills, &o.Category, &o.BudgetType, &o.BudgetMin, &o.BudgetMax, &o.ConnectsCost, &o.CanonicalURL, &o.Status, &posted)
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("opportunity %s not found", id)
 	}
@@ -117,6 +119,7 @@ func (c *Core) GetOpportunity(id string) (*domain.Opportunity, error) {
 		return nil, err
 	}
 	o.Skills = splitCSV(skills)
+	o.PostedAt = parseStoredTime(posted)
 	if clientID != "" {
 		var cl domain.Client
 		if err := c.DB.DB.QueryRow(`SELECT id,source,display_name,rating,total_hires,total_spend,country FROM clients WHERE id=?`, clientID).
@@ -206,14 +209,14 @@ func (c *Core) upsertOpportunity(o *domain.Opportunity) error {
 		status = "discovered"
 	}
 	_, err := c.DB.DB.Exec(`
-INSERT INTO opportunities(id,source,source_opp_id,canonical_url,title,description,skills,category,budget_min,budget_max,budget_type,fingerprint,raw_snapshot,status,created_at,updated_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+INSERT INTO opportunities(id,source,source_opp_id,canonical_url,title,description,skills,category,budget_min,budget_max,budget_type,fingerprint,raw_snapshot,status,posted_at,created_at,updated_at)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(source, source_opp_id) DO UPDATE SET
   canonical_url=excluded.canonical_url, title=excluded.title, description=excluded.description,
   skills=excluded.skills, category=excluded.category, budget_min=excluded.budget_min,
-  budget_max=excluded.budget_max, budget_type=excluded.budget_type, updated_at=excluded.updated_at`,
+  budget_max=excluded.budget_max, budget_type=excluded.budget_type, posted_at=excluded.posted_at, updated_at=excluded.updated_at`,
 		id, o.Source, o.SourceOppID, o.CanonicalURL, o.Title, o.Description, strings.Join(o.Skills, ","),
-		o.Category, o.BudgetMin, o.BudgetMax, o.BudgetType, fp, o.RawSnapshot, status, now(), now())
+		o.Category, o.BudgetMin, o.BudgetMax, o.BudgetType, fp, o.RawSnapshot, status, formatStoredTime(o.PostedAt), now(), now())
 	return err
 }
 
@@ -806,6 +809,26 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+func formatStoredTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
+}
+
+func parseStoredTime(s string) time.Time {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}
+	}
+	for _, f := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05", "2006-01-02"} {
+		if t, err := time.Parse(f, s); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
 }
 
 func truncate(s string, n int) string {
